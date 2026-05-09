@@ -9,18 +9,14 @@ validateConfig();
 
 const app = express();
 
-// Capture raw body for HMAC verification before JSON parse
-app.use((req, res, next) => {
-  let data = '';
-  req.on('data', (chunk) => { data += chunk; });
-  req.on('end', () => {
-    req.rawBody = data;
-    next();
-  });
-});
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Parse body once; capture raw bytes for HMAC verification via verify callback
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
+app.use(express.urlencoded({
+  extended: false,
+  verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
 
 // Request logging middleware
 app.use((req, res, next) => {
