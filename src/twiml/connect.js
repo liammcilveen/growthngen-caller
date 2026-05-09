@@ -12,9 +12,23 @@ const router = express.Router();
 const logger = require('../logger');
 const { config } = require('../config');
 
+const VALID_AGENT_IDS = new Set([
+  config.elevenLabs.agentId,
+  config.elevenLabs.agentIdKate,
+].filter(Boolean));
+
 router.post('/connect', (req, res) => {
-  const agentId = req.query.agent_id || config.elevenLabs.agentId;
-  const callSid = req.body.CallSid || '';
+  const requestedId = req.query.agent_id;
+  const agentId = (requestedId && VALID_AGENT_IDS.has(requestedId))
+    ? requestedId
+    : config.elevenLabs.agentId;
+
+  if (requestedId && !VALID_AGENT_IDS.has(requestedId)) {
+    logger.warn({ requestedId }, 'TwiML connect: unknown agent_id — falling back to default');
+  }
+
+  // Strip everything except alphanumeric and underscores from CallSid before embedding in XML
+  const callSid = (req.body.CallSid || '').replace(/[^A-Za-z0-9_]/g, '');
 
   logger.info({ agentId, callSid }, 'TwiML connect request');
 

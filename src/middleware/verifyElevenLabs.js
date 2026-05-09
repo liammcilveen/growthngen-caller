@@ -19,8 +19,8 @@ function verifyElevenLabsSignature(req, res, next) {
   const secret = config.elevenLabs.webhookSecret;
 
   if (!secret) {
-    logger.warn('ELEVENLABS_WEBHOOK_SECRET not set — skipping signature verification');
-    return next();
+    logger.error('ELEVENLABS_WEBHOOK_SECRET not set — rejecting all webhook requests');
+    return res.status(401).json({ error: 'Webhook secret not configured' });
   }
 
   const sigHeader = req.headers['xi-elevenlabs-signature'] || req.headers['x-elevenlabs-signature'];
@@ -53,10 +53,14 @@ function verifyElevenLabsSignature(req, res, next) {
     .update(`${timestamp}.${rawBody}`)
     .digest('hex');
 
-  const signaturesMatch = crypto.timingSafeEqual(
-    Buffer.from(receivedHmac, 'hex'),
-    Buffer.from(expectedHmac, 'hex')
-  );
+  let signaturesMatch = false;
+  try {
+    const a = Buffer.from(receivedHmac, 'hex');
+    const b = Buffer.from(expectedHmac, 'hex');
+    signaturesMatch = a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    signaturesMatch = false;
+  }
 
   if (!signaturesMatch) {
     logger.warn({ path: req.path }, 'ElevenLabs signature mismatch — rejecting');
