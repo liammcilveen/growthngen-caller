@@ -22,6 +22,7 @@ function validateConfig() {
     'TWILIO_AUTH_TOKEN',
     'TWILIO_PHONE_NUMBER',
     'ANTHROPIC_API_KEY',
+    'TRIGGER_API_KEY',
   ];
   for (const key of mustHave) {
     if (!process.env[key]) missing.push(key);

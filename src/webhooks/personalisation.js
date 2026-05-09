@@ -20,10 +20,21 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../logger');
+const { config } = require('../config');
 const { findContactByPhone, findAssociatedDeal, buildContactSummary, defaultContactSummary } = require('../services/hubspot');
+
+const VALID_AGENT_IDS = new Set([
+  config.elevenLabs.agentId,
+  config.elevenLabs.agentIdKate,
+].filter(Boolean));
 
 router.get('/personalisation', async (req, res) => {
   const { caller_id, agent_id, called_number, call_sid } = { ...req.query, ...req.body };
+
+  if (!agent_id || !VALID_AGENT_IDS.has(agent_id)) {
+    logger.warn({ agent_id, ip: req.ip }, 'personalisation: unknown agent_id — rejecting');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   logger.info({ caller_id, agent_id, called_number, call_sid }, 'personalisation webhook received');
 

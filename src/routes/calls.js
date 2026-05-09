@@ -32,9 +32,8 @@ const twilioClient = twilio(config.twilio.accountSid, config.twilio.authToken);
 function requireTriggerAuth(req, res, next) {
   const apiKey = config.sdr.triggerApiKey;
   if (!apiKey) {
-    // No key configured — warn and allow (dev mode)
-    logger.warn('TRIGGER_API_KEY not set — call trigger endpoint is unprotected');
-    return next();
+    logger.error('TRIGGER_API_KEY not set — rejecting all call trigger requests');
+    return res.status(401).json({ error: 'Call trigger not configured' });
   }
   const auth = req.headers.authorization || '';
   if (!auth.startsWith('Bearer ') || auth.slice(7) !== apiKey) {
