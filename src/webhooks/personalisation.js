@@ -72,7 +72,6 @@ router.get('/personalisation', async (req, res) => {
       job_title: summary.job_title,
       deal_stage: summary.deal_stage,
       last_contact_notes: summary.last_contact_notes,
-      sdr_call_attempts: summary.sdr_call_attempts,
       project_type: summary.project_type,
       project_value: summary.project_value,
       caller_id_hint: summary.caller_id_hint,

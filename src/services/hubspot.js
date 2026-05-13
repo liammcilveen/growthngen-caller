@@ -21,10 +21,10 @@ function headers() {
 
 const CONTACT_PROPS = [
   'firstname', 'lastname', 'email', 'phone', 'company', 'jobtitle',
-  'hs_lead_status', 'sdr_notes', 'sdr_call_attempts', 'sdr_last_call_date',
-  'sdr_call_disposition', 'lead_source_detail',
+  'hs_lead_status', 'sdr_notes', 'sdr_call_disposition', 'lead_source_detail',
   // Cotality/project fields — present if previously enriched
   'cotality_project_type', 'cotality_project_value', 'cordell_project_type',
+  // sdr_call_attempts and sdr_last_call_date removed — retired, auto-populated by HubSpot
 ];
 
 const DEAL_PROPS = [
@@ -150,7 +150,6 @@ function buildContactSummary(contact, deal) {
     lead_status: p.hs_lead_status || '',
     deal_stage: d.dealname ? `${d.dealname} (${d.dealstage || ''})` : '',
     last_contact_notes: p.sdr_notes || '',
-    sdr_call_attempts: p.sdr_call_attempts || '0',
     project_type: projectType,
     project_value: projectValue,
     caller_id_hint: _inferCallerHint(p.hs_lead_status),
@@ -175,7 +174,6 @@ function defaultContactSummary() {
     lead_status: '',
     deal_stage: '',
     last_contact_notes: '',
-    sdr_call_attempts: '0',
     project_type: '',
     project_value: '',
     caller_id_hint: 'cold',

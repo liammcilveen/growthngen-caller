@@ -20,42 +20,42 @@ function headers() {
 
 // Maps SDR disposition codes to HubSpot hs_lead_status values
 const DISPOSITION_TO_LEAD_STATUS = {
-  qualified_booked: 'MEETING_BOOKED',
-  qualified_send_link: 'QUALIFIED',
-  qualified_callback: 'QUALIFIED',
+  qualified_booked:         'MEETING_BOOKED',
+  qualified_send_link:      'QUALIFIED',
+  qualified_callback:       'QUALIFIED',
   interested_not_qualified: 'UNQUALIFIED',
-  not_interested: 'NOT_INTERESTED',
-  gatekeeper_blocked: 'ATTEMPTING_CONTACT',
-  no_answer: 'ATTEMPTING_CONTACT',
-  voicemail_left: 'ATTEMPTING_CONTACT',
-  wrong_number: 'ATTEMPTING_CONTACT',
-  do_not_call: 'DO_NOT_CONTACT',
-  human_requested: 'IN_PROGRESS',
-  declined_ai: 'IN_PROGRESS',
+  not_interested:           'NOT_INTERESTED',
+  gatekeeper_blocked:       'ATTEMPTED_TO_CONTACT',
+  no_answer:                'ATTEMPTED_TO_CONTACT',
+  voicemail_left:           'ATTEMPTED_TO_CONTACT',
+  wrong_number:             'ATTEMPTED_TO_CONTACT',
+  do_not_call:              'DO_NOT_CONTACT',
+  human_requested:          'IN_PROGRESS',
+  declined_ai:              'IN_PROGRESS',
 };
 
-// HubSpot call outcome GUIDs (standard portal values)
+// HubSpot call outcome GUIDs (verified via /calling/v1/dispositions)
 const CALL_OUTCOME_GUIDS = {
-  connected: 'a4c4c377-d246-4b32-a13b-75a56a4cd0ff',
-  no_answer: '73a0d17f-1163-4015-bdd5-ec830791da20',
-  left_voicemail: 'f240bbac-87c9-4f6e-bf70-924b57d47db7',
-  wrong_number: '17b47fee-58de-441e-a44c-463f3571cbe0',
+  connected:      'f240bbac-87c9-4f6e-bf70-924b57d47db7',  // Connected
+  no_answer:      '73a0d17f-1163-4015-bdd5-ec830791da20',  // No answer
+  left_voicemail: 'b2cf5968-551e-4856-9783-52b3da59a7d0',  // Left voicemail
+  left_message:   'a4c4c377-d246-4b32-a13b-75a56a4cd0ff',  // Left live message (gatekeeper)
+  wrong_number:   '17b47fee-58de-441e-a44c-463f3571cbe0',  // Wrong number
 };
 
 /**
  * Update a contact's lead status, SDR disposition, and notes.
  */
-async function updateLeadStatus(contactId, disposition, notes = '', callAttempts = null) {
+async function updateLeadStatus(contactId, disposition, notes = '') {
   if (!contactId || !config.hubspot.apiKey) return null;
 
-  const leadStatus = DISPOSITION_TO_LEAD_STATUS[disposition] || 'ATTEMPTING_CONTACT';
+  const leadStatus = DISPOSITION_TO_LEAD_STATUS[disposition] || 'ATTEMPTED_TO_CONTACT';
   const props = {
     hs_lead_status: leadStatus,
     sdr_call_disposition: disposition,
-    sdr_last_call_date: new Date().toISOString().slice(0, 10),
+    // sdr_last_call_date and sdr_call_attempts retired — auto-populated by HubSpot from call engagements
   };
   if (notes) props.sdr_notes = notes;
-  if (callAttempts !== null) props.sdr_call_attempts = String(callAttempts);
 
   try {
     await axios.patch(
@@ -108,13 +108,12 @@ async function addNote(contactId, body) {
 async function logCallEngagement(contactId, { disposition, durationSeconds = 0, notes = '', recordingUrl = '' }) {
   if (!contactId || !config.hubspot.apiKey) return null;
 
-  const outcomeGuid = disposition === 'no_answer'
-    ? CALL_OUTCOME_GUIDS.no_answer
-    : disposition === 'voicemail_left'
-      ? CALL_OUTCOME_GUIDS.left_voicemail
-      : disposition === 'wrong_number'
-        ? CALL_OUTCOME_GUIDS.wrong_number
-        : CALL_OUTCOME_GUIDS.connected;
+  const outcomeGuid =
+    disposition === 'no_answer'          ? CALL_OUTCOME_GUIDS.no_answer
+    : disposition === 'voicemail_left'   ? CALL_OUTCOME_GUIDS.left_voicemail
+    : disposition === 'wrong_number'     ? CALL_OUTCOME_GUIDS.wrong_number
+    : disposition === 'gatekeeper_blocked' ? CALL_OUTCOME_GUIDS.left_message
+    : CALL_OUTCOME_GUIDS.connected;
 
   const nowMs = Date.now();
   const props = {
@@ -148,11 +147,21 @@ async function logCallEngagement(contactId, { disposition, durationSeconds = 0, 
   }
 }
 
+// Disposition → GrowthNGen pipeline stage
+const DISPOSITION_TO_DEAL_STAGE = {
+  qualified_booked:    '1127536670',  // Demo Booked
+  qualified_send_link: '1165694819',  // Contact Made
+  qualified_callback:  '1165694818',  // Attempting Contact
+};
+const DEFAULT_DEAL_STAGE = '1165694817'; // Qualified Opportunity
+
 /**
  * Create a deal in the GrowthNGen pipeline (qualified_booked / qualified_send_link).
  */
-async function createDeal(contactId, companyName, notes = '') {
+async function createDeal(contactId, companyName, disposition, notes = '') {
   if (!contactId || !config.hubspot.apiKey) return null;
+
+  const dealStage = DISPOSITION_TO_DEAL_STAGE[disposition] || DEFAULT_DEAL_STAGE;
 
   try {
     const resp = await axios.post(
@@ -161,8 +170,8 @@ async function createDeal(contactId, companyName, notes = '') {
         properties: {
           dealname: `${companyName} — GrowthNGen`,
           pipeline: config.hubspot.pipelineId,
-          dealstage: config.hubspot.dealStageQualified,
-          lead_source_detail: 'sdr_outbound_call',
+          dealstage: dealStage,
+          opportunity_source: 'Prospecting',
           description: notes,
         },
       },

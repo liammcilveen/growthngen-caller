@@ -140,7 +140,7 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   if (DEAL_DISPOSITIONS.has(summary.disposition) && !deal?.id) {
     const contact = await findContactByPhone(rawPhone);
     const companyName = contact?.properties?.company || 'Unknown';
-    await createDeal(contactId, companyName, summary.outcome);
+    await createDeal(contactId, companyName, summary.disposition, summary.outcome);
   }
 
   // 8. Create follow-up task for Liam if needed
@@ -148,6 +148,15 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
     await createFollowUpTask(
       contactId,
       TASK_DISPOSITIONS[summary.disposition],
+      `${summary.outcome}\n\n${summary.follow_up_draft || ''}`
+    );
+  }
+
+  // 8b. Callback task — schedule a return call with context
+  if (summary.disposition === 'qualified_callback') {
+    await createFollowUpTask(
+      contactId,
+      `SDR Callback — ${rawPhone}`,
       `${summary.outcome}\n\n${summary.follow_up_draft || ''}`
     );
   }

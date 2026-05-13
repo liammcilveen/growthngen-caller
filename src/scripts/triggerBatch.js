@@ -30,7 +30,7 @@ const http = require('http');
 function parseArgs() {
   const args = process.argv.slice(2);
   const opts = {
-    leadStatus: 'New',
+    leadStatus: 'MAKE_CALL',
     max: 20,
     concurrency: 3,
     agent: 'will',
@@ -122,6 +122,38 @@ function hubspotPost(path, body, apiKey) {
     });
 
     req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+// ── HubSpot trigger status clear ──────────────────────────────────────────────
+// After triggering a call, immediately move the contact off MAKE_CALL so it
+// isn't re-queued on the next cron run.
+
+function clearTriggerStatus(contactId, apiKey) {
+  const body = JSON.stringify({ properties: { hs_lead_status: 'ATTEMPTED_TO_CONTACT' } });
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: 'api.hubapi.com',
+        path: `/crm/v3/objects/contacts/${contactId}`,
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        res.resume(); // drain and discard
+        resolve(res.statusCode);
+      }
+    );
+    req.on('error', (err) => {
+      console.warn(`  [warn] Could not clear trigger status for ${contactId}: ${err.message}`);
+      resolve(null);
+    });
     req.write(body);
     req.end();
   });
@@ -253,6 +285,8 @@ async function main() {
         const sid = result.body?.call_sid || 'no-sid';
         console.log(`${prefix} → call_sid=${sid}`);
         succeeded++;
+        // Clear trigger status so this contact isn't re-queued on the next cron run
+        clearTriggerStatus(contact.id, process.env.HUBSPOT_API_KEY || opts.apiKey);
       } else {
         const detail = result.body?.error || result.body?.detail || JSON.stringify(result.body);
         console.log(`${prefix} → HTTP ${result.status}: ${detail}`);
