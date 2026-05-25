@@ -24,8 +24,9 @@ const EL_BASE = 'https://api.elevenlabs.io';
 const DRY_RUN = process.argv.includes('--dry-run');
 
 const apiKey = process.env.ELEVENLABS_API_KEY;
-const webhookHost = process.env.VPS_HOST || '170-64-143-32.sslip.io';
-const WEBHOOK_URL = `https://${webhookHost}/webhooks/post-call`;
+// Strip any existing protocol prefix from VPS_HOST (it may already include https://)
+const rawHost = (process.env.VPS_HOST || '170-64-143-32.sslip.io').replace(/^https?:\/\//, '');
+const WEBHOOK_URL = `https://${rawHost}/webhooks/post-call`;
 const WEBHOOK_SECRET = process.env.ELEVENLABS_WEBHOOK_SECRET || '';
 
 if (!apiKey) {
