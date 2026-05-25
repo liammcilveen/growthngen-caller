@@ -164,6 +164,13 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
         to_number: phone,
         conversation_initiation_client_data: {
           dynamic_variables: dynamicVariables,
+          // Empty string explicitly signals listen-first mode on outbound calls.
+          // Without this, ElevenLabs defaults to agent-speaks-first for outbound.
+          conversation_config_override: {
+            agent: {
+              first_message: '',
+            },
+          },
         },
       },
       {
