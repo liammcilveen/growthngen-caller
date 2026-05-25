@@ -80,9 +80,12 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   const registryEntry = registryLookup(conversation_id);
   if (registryEntry) registryRemove(conversation_id);
 
-  let contactId = registryEntry?.contactId || null;
+  // Dynamic variables passed at call initiation — available in metadata on the post-call payload
+  const dynVars = callMeta?.conversation_initiation_client_data?.dynamic_variables || {};
+
+  // contactId priority: registry (most reliable) → dynamic_variables → phone lookup
+  let contactId = registryEntry?.contactId || dynVars.hubspot_contact_id || null;
   const rawPhone = registryEntry?.phone
-    || req.body?.conversation_initiation_client_data?.dynamic_variables?.hubspot_contact_id  // fallback hint
     || callMeta.to_number || callMeta.caller_id || callMeta.from_phone || '';
 
   if (!contactId && rawPhone) {
