@@ -13,36 +13,49 @@ const { config } = require('../config');
  * Verification: HMAC-SHA256(secret, "<timestamp>.<raw_body>")
  *
  * Fail-open rules (designed for progressive hardening):
- *   - If ELEVENLABS_WEBHOOK_SECRET is not set → warn and pass through
- *   - If secret is set but ElevenLabs sends no signature → warn and pass through
- *     (happens when the ElevenLabs agent webhook wasn't registered with the secret yet)
- *   - If secret is set AND header is present but signature is WRONG → reject 401
+ *   - ELEVENLABS_WEBHOOK_SKIP_VERIFY=true → bypass entirely (testing/setup phase)
+ *   - No secret set → warn and pass through
+ *   - Secret set, no signature header → warn and pass through (ElevenLabs not yet
+ *     configured with our secret — common during initial setup)
+ *   - Secret set, header present, signature WRONG → reject 401
  *     (this is an active forgery attempt, not a config lag)
  *
  * Once ElevenLabs workspace webhook is registered with the correct secret and
- * starts sending the xi-elevenlabs-signature header, verification tightens
- * automatically — no code change needed.
+ * starts sending xi-elevenlabs-signature, verification tightens automatically.
  */
 function verifyElevenLabsSignature(req, res, next) {
+  // ── Escape hatch for initial setup / HMAC debugging ─────────────────────
+  if (process.env.ELEVENLABS_WEBHOOK_SKIP_VERIFY === 'true') {
+    logger.warn({ path: req.path }, 'ELEVENLABS_WEBHOOK_SKIP_VERIFY=true — skipping signature check');
+    return next();
+  }
+
   const secret = config.elevenLabs.webhookSecret;
 
   if (!secret) {
-    logger.warn('ELEVENLABS_WEBHOOK_SECRET not set — passing through (fail-open)');
+    logger.warn({ path: req.path }, 'ELEVENLABS_WEBHOOK_SECRET not set — passing through (fail-open)');
     return next();
   }
 
   const sigHeader = req.headers['xi-elevenlabs-signature'] || req.headers['x-elevenlabs-signature'];
 
   if (!sigHeader) {
-    // ElevenLabs wasn't configured with our secret yet — pass through with warning.
-    // Once the workspace webhook secret is set on ElevenLabs' side, every call
-    // will include the header and verification will kick in automatically.
-    logger.warn({ path: req.path }, 'ElevenLabs signature header absent — passing through until webhook secret synced');
+    // ElevenLabs wasn't configured with our secret yet — pass through.
+    // Diagnostic: log which headers DID arrive so we can spot alternate header names.
+    const incomingHeaders = Object.keys(req.headers).filter((h) => h.includes('eleven') || h.includes('sign') || h.includes('xi'));
+    logger.warn({ path: req.path, elevenlabsHeaders: incomingHeaders },
+      'ElevenLabs signature header absent — passing through (check elevenlabsHeaders for alternates)');
     return next();
   }
 
+  // Diagnostic: log that we received a signature so we know ElevenLabs is signing
+  logger.info({ path: req.path, sigHeader: sigHeader.substring(0, 40) + '...' }, 'ElevenLabs signature received — verifying');
+
   // Parse: t=<timestamp>,v0=<hmac>
-  const parts = Object.fromEntries(sigHeader.split(',').map((p) => p.split('=')));
+  const parts = Object.fromEntries(sigHeader.split(',').map((p) => {
+    const idx = p.indexOf('=');
+    return [p.substring(0, idx), p.substring(idx + 1)];
+  }));
   const timestamp = parts.t;
   const receivedHmac = parts.v0;
 
@@ -54,7 +67,7 @@ function verifyElevenLabsSignature(req, res, next) {
   // Reject requests older than 5 minutes
   const age = Math.abs(Date.now() / 1000 - parseInt(timestamp, 10));
   if (age > 300) {
-    logger.warn({ age }, 'ElevenLabs webhook timestamp too old');
+    logger.warn({ path: req.path, ageSeconds: age }, 'ElevenLabs webhook timestamp too old — rejecting');
     return res.status(401).json({ error: 'Request too old' });
   }
 
@@ -74,7 +87,15 @@ function verifyElevenLabsSignature(req, res, next) {
   }
 
   if (!signaturesMatch) {
-    logger.warn({ path: req.path }, 'ElevenLabs signature mismatch — rejecting');
+    // Diagnostic: log the first 16 chars of each so we can spot obvious mismatches
+    // without exposing the full secret
+    logger.warn({
+      path: req.path,
+      receivedPrefix: receivedHmac.substring(0, 16),
+      expectedPrefix: expectedHmac.substring(0, 16),
+      rawBodyLength: rawBody.length,
+      timestamp,
+    }, 'ElevenLabs signature mismatch — rejecting');
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
