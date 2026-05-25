@@ -135,10 +135,13 @@ async function configureAgent(name, agentId, workspaceWebhookId) {
   const currentPostCallId = wo.webhooks?.post_call_webhook_id || null;
   const currentPersonalisationUrl = wo.conversation_initiation_client_data_webhook?.url || null;
   const personalisationEnabled = overrides.enable_conversation_initiation_client_data_from_webhook === true;
+  const cco = overrides.conversation_config_override || {};
+  const firstMessageAllowed = cco.agent?.first_message === true;
 
-  console.log(`  Post-call webhook ID : ${currentPostCallId || 'not set'}`);
-  console.log(`  Personalisation URL  : ${currentPersonalisationUrl || 'not set'}`);
-  console.log(`  Personalisation on   : ${personalisationEnabled}`);
+  console.log(`  Post-call webhook ID   : ${currentPostCallId || 'not set'}`);
+  console.log(`  Personalisation URL    : ${currentPersonalisationUrl || 'not set'}`);
+  console.log(`  Personalisation on     : ${personalisationEnabled}`);
+  console.log(`  first_message override : ${firstMessageAllowed ? 'allowed ✓' : 'BLOCKED ✗ — calls will fail!'}`);
 
   if (DRY_RUN) {
     if (workspaceWebhookId) {
@@ -148,10 +151,12 @@ async function configureAgent(name, agentId, workspaceWebhookId) {
     }
     console.log(`  [dry-run] Would set personalisation webhook to: ${PERSONALISATION_WEBHOOK_URL}`);
     console.log(`  [dry-run] Would enable conversation_initiation_client_data_from_webhook`);
+    console.log(`  [dry-run] Would set first_message override to: allowed`);
     return;
   }
 
-  // Build the patch — preserve existing settings, only change webhook fields
+  // Build the patch — preserve existing settings, only change what we need.
+  // IMPORTANT: merge nested overrides carefully to avoid wiping other fields.
   const patch = {
     platform_settings: {
       ...ps,
@@ -159,6 +164,16 @@ async function configureAgent(name, agentId, workspaceWebhookId) {
         ...overrides,
         // Enable personalisation webhook (contact context injected before calls)
         enable_conversation_initiation_client_data_from_webhook: true,
+        // Allow clients to set a custom first_message per call.
+        // Without this: ElevenLabs immediately drops outbound calls that pass
+        // conversation_config_override.agent.first_message — the entire call fails.
+        conversation_config_override: {
+          ...cco,
+          agent: {
+            ...(cco.agent || {}),
+            first_message: true,
+          },
+        },
       },
       workspace_overrides: {
         ...wo,
@@ -192,9 +207,11 @@ async function configureAgent(name, agentId, workspaceWebhookId) {
   const vwo = vps.workspace_overrides || {};
   const vOverrides = vps.overrides || {};
 
-  console.log(`  Post-call webhook ID : ${vwo.webhooks?.post_call_webhook_id || 'still null'}`);
-  console.log(`  Personalisation URL  : ${vwo.conversation_initiation_client_data_webhook?.url || 'not set'}`);
-  console.log(`  Personalisation on   : ${vOverrides.enable_conversation_initiation_client_data_from_webhook === true}`);
+  const vCco = vOverrides.conversation_config_override || {};
+  console.log(`  Post-call webhook ID   : ${vwo.webhooks?.post_call_webhook_id || 'still null'}`);
+  console.log(`  Personalisation URL    : ${vwo.conversation_initiation_client_data_webhook?.url || 'not set'}`);
+  console.log(`  Personalisation on     : ${vOverrides.enable_conversation_initiation_client_data_from_webhook === true}`);
+  console.log(`  first_message override : ${vCco.agent?.first_message === true ? 'allowed ✓' : 'STILL BLOCKED ✗'}`);
   console.log('  ✓ Done');
 }
 
