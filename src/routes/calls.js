@@ -31,6 +31,7 @@ const {
   buildContactSummary,
   defaultContactSummary,
 } = require('../services/hubspot');
+const { register: registerCall } = require('../services/callRegistry');
 
 const EL_BASE = 'https://api.elevenlabs.io';
 
@@ -171,6 +172,10 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
     );
 
     const { conversation_id, call_sid } = elRes.data;
+
+    // Register so post-call webhook can resolve HubSpot contact without
+    // relying on caller_id (which is ElevenLabs' number, not the prospect's)
+    registerCall(conversation_id, { contactId, phone, agent });
 
     logger.info({ conversation_id, call_sid, phone, agentId, contactId }, 'ElevenLabs outbound call initiated');
 

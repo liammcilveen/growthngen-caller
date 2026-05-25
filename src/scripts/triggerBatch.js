@@ -75,7 +75,7 @@ async function fetchEligibleContacts(leadStatus, max) {
         ],
       },
     ],
-    properties: ['firstname', 'lastname', 'phone', 'company', 'hs_lead_status', 'sdr_last_call_date'],
+    properties: ['firstname', 'lastname', 'phone', 'company', 'hs_lead_status', 'sdr_last_call_date', 'sdr_assigned_agent'],
     limit: Math.min(max * 3, 100), // fetch extra to account for filtered-out contacts
     sorts: [{ propertyName: 'sdr_last_call_date', direction: 'ASCENDING' }],
   });
@@ -163,10 +163,14 @@ function clearTriggerStatus(contactId, apiKey) {
 
 function triggerCall(contact, opts) {
   return new Promise((resolve, reject) => {
+    // Per-contact agent assignment takes priority over the batch-level --agent flag.
+    // Set sdr_assigned_agent = "will" or "kate" on the HubSpot contact to pre-assign.
+    const agentForContact = contact.properties?.sdr_assigned_agent || opts.agent;
+
     const payload = JSON.stringify({
       hubspot_contact_id: contact.id,
       phone: contact.properties?.phone || undefined,
-      agent: opts.agent,
+      agent: agentForContact,
     });
 
     const isHttps = opts.host.startsWith('https://') || (!opts.host.startsWith('http://') && !opts.host.includes('localhost'));
@@ -262,7 +266,8 @@ async function main() {
     const name = [c.properties?.firstname, c.properties?.lastname].filter(Boolean).join(' ') || 'Unknown';
     const phone = c.properties?.phone || '(no phone)';
     const company = c.properties?.company || '';
-    console.log(`  [${i + 1}/${contacts.length}] ${name} (${company}) — ${phone}`);
+    const agentLabel = c.properties?.sdr_assigned_agent || opts.agent;
+    console.log(`  [${i + 1}/${contacts.length}] ${name} (${company}) — ${phone} [${agentLabel}]`);
   });
 
   if (opts.dryRun) {

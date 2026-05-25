@@ -23,6 +23,7 @@ const router = express.Router();
 const logger = require('../logger');
 const { verifyElevenLabsSignature } = require('../middleware/verifyElevenLabs');
 const { findContactByPhone, findAssociatedDeal, normalizePhone } = require('../services/hubspot');
+const { lookup: registryLookup, remove: registryRemove } = require('../services/callRegistry');
 const {
   addNote,
   logCallEngagement,
@@ -69,9 +70,20 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
 
   logger.info({ disposition: summary.disposition, conversation_id }, 'post-call summary complete');
 
-  // 2. Find HubSpot contact (try phone from metadata, fall back to caller info)
-  const rawPhone = callMeta.caller_id || callMeta.from_phone || '';
-  let contactId = callMeta.hubspot_contact_id || null; // passed via dynamic_variables → metadata
+  // 2. Find HubSpot contact
+  // Priority order:
+  //   A. Call registry (most reliable — set at initiation time in calls.js)
+  //   B. dynamic_variables passed through conversation_initiation_client_data
+  //   C. Phone lookup via metadata.to_number (outbound prospect number)
+  //   D. Phone lookup via metadata.caller_id (may be ElevenLabs' own number — least reliable)
+
+  const registryEntry = registryLookup(conversation_id);
+  if (registryEntry) registryRemove(conversation_id);
+
+  let contactId = registryEntry?.contactId || null;
+  const rawPhone = registryEntry?.phone
+    || req.body?.conversation_initiation_client_data?.dynamic_variables?.hubspot_contact_id  // fallback hint
+    || callMeta.to_number || callMeta.caller_id || callMeta.from_phone || '';
 
   if (!contactId && rawPhone) {
     const contact = await findContactByPhone(rawPhone);
@@ -80,7 +92,6 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
 
   if (!contactId) {
     logger.warn({ conversation_id, rawPhone }, 'post-call: no HubSpot contact found — logging summary only');
-    // Still log to console so data isn't lost
     logger.info({ summary }, 'post-call summary (no contact)');
     return;
   }
