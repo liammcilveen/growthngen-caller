@@ -79,7 +79,9 @@ async function summariseCall(transcriptItems, metadata = {}) {
     });
 
     const raw = message.content?.[0]?.text || '';
-    const parsed = JSON.parse(raw);
+    // Strip markdown code fences if Claude wraps the response despite instructions
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const parsed = JSON.parse(cleaned);
 
     // Validate disposition
     if (!VALID_DISPOSITIONS.includes(parsed.disposition)) {
