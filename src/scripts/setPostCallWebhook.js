@@ -77,10 +77,14 @@ async function setWebhook(name, agentId) {
     timeout: 10000,
   });
 
-  const updated = result.data?.platform_settings;
-  const newWebhook = updated?.post_call_webhook || updated?.webhook || null;
   console.log(`  HTTP ${result.status}`);
-  console.log('  New webhook     :', newWebhook ? JSON.stringify(newWebhook) : 'check ElevenLabs console');
+
+  // Re-fetch the agent to confirm what was actually saved
+  const verify = await getAgent(agentId);
+  const vps = verify.platform_settings || {};
+  const confirmedWebhook = vps.post_call_webhook || vps.webhook || null;
+  console.log('  Confirmed webhook:', confirmedWebhook ? JSON.stringify(confirmedWebhook) : '(not found in platform_settings)');
+  console.log('  Full platform_settings:', JSON.stringify(vps, null, 2).split('\n').map(l => '    ' + l).join('\n'));
   console.log('  ✓ Done');
 }
 
