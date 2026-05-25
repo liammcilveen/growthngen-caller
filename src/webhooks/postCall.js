@@ -44,6 +44,9 @@ const TASK_DISPOSITIONS = {
 };
 
 router.post('/post-call', verifyElevenLabsSignature, async (req, res) => {
+  // Temporary: log top-level keys + conversation_id location to diagnose payload structure
+  logger.info({ topLevelKeys: Object.keys(req.body || {}), bodySnippet: JSON.stringify(req.body).slice(0, 300) }, 'post-call raw payload');
+
   const { conversation_id, transcript, analysis, metadata } = req.body;
 
   logger.info({ conversation_id, transcriptItems: transcript?.length || 0 }, 'post-call webhook received');
