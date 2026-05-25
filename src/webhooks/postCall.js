@@ -44,10 +44,10 @@ const TASK_DISPOSITIONS = {
 };
 
 router.post('/post-call', verifyElevenLabsSignature, async (req, res) => {
-  // Temporary: log top-level keys + conversation_id location to diagnose payload structure
-  logger.info({ topLevelKeys: Object.keys(req.body || {}), bodySnippet: JSON.stringify(req.body).slice(0, 300) }, 'post-call raw payload');
-
-  const { conversation_id, transcript, analysis, metadata } = req.body;
+  // ElevenLabs wraps the payload: { type, event_timestamp, data: { conversation_id, ... } }
+  // Fall back to req.body directly in case the structure ever changes.
+  const payload = req.body.data || req.body;
+  const { conversation_id, transcript, analysis, metadata, user_id } = payload;
 
   logger.info({ conversation_id, transcriptItems: transcript?.length || 0 }, 'post-call webhook received');
 
@@ -57,14 +57,14 @@ router.post('/post-call', verifyElevenLabsSignature, async (req, res) => {
   // All processing is async after response
   setImmediate(async () => {
     try {
-      await processPostCall({ conversation_id, transcript, analysis, metadata });
+      await processPostCall({ conversation_id, transcript, analysis, metadata, user_id });
     } catch (err) {
       logger.error({ err: err.message, conversation_id }, 'post-call processing failed');
     }
   });
 });
 
-async function processPostCall({ conversation_id, transcript, analysis, metadata }) {
+async function processPostCall({ conversation_id, transcript, analysis, metadata, user_id }) {
   const callMeta = metadata || {};
   const durationSeconds = callMeta.call_duration_secs || 0;
 
@@ -89,6 +89,7 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   // contactId priority: registry (most reliable) → dynamic_variables → phone lookup
   let contactId = registryEntry?.contactId || dynVars.hubspot_contact_id || null;
   const rawPhone = registryEntry?.phone
+    || user_id  // ElevenLabs sends prospect's number as data.user_id
     || callMeta.to_number || callMeta.caller_id || callMeta.from_phone || '';
 
   if (!contactId && rawPhone) {
