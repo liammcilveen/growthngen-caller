@@ -118,7 +118,7 @@ async function logCallEngagement(contactId, { disposition, durationSeconds = 0, 
   const nowMs = Date.now();
   const props = {
     hs_timestamp: String(nowMs),
-    hs_call_title: `AI SDR Call — ${disposition}`,
+    hs_call_title: `AI SDR Call — Will (GrowthNGen)`,
     hs_call_body: notes,
     hs_call_duration: String(durationSeconds * 1000),
     hs_call_status: 'COMPLETED',

@@ -102,20 +102,43 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
     return;
   }
 
-  // 3. Build note body
+  // 3. Build call body — plain text (hs_call_body doesn't render markdown)
+  const DISPOSITION_LABELS = {
+    qualified_booked:         'Qualified — Meeting Booked',
+    qualified_send_link:      'Qualified — Send Link',
+    qualified_callback:       'Qualified — Callback Requested',
+    interested_not_qualified: 'Interested — Not Yet Qualified',
+    not_interested:           'Not Interested',
+    gatekeeper_blocked:       'Gatekeeper Blocked',
+    no_answer:                'No Answer',
+    voicemail_left:           'Voicemail Left',
+    wrong_number:             'Wrong Number',
+    do_not_call:              'Do Not Call',
+    human_requested:          'Human Follow-up Requested',
+    declined_ai:              'Declined AI Call',
+  };
+
+  const dispositionLabel = DISPOSITION_LABELS[summary.disposition] || summary.disposition;
+  const transcriptUrl = `https://elevenlabs.io/app/conversational-ai/history/${conversation_id}`;
+  const mins = Math.floor(durationSeconds / 60);
+  const secs = durationSeconds % 60;
+  const durationLabel = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
   const noteLines = [
-    `**AI SDR Call — ${summary.disposition}**`,
-    `Conversation: ${conversation_id}`,
-    `Duration: ${durationSeconds}s`,
+    `AI SDR Call: ${dispositionLabel}`,
+    `Duration: ${durationLabel}  |  Transcript: ${transcriptUrl}`,
     '',
-    `**Outcome:** ${summary.outcome}`,
+    'Outcome',
+    summary.outcome,
     '',
   ];
 
-  if (summary.next_action) noteLines.push(`**Next action:** ${summary.next_action}`, '');
+  if (summary.next_action) {
+    noteLines.push('Next Action', summary.next_action, '');
+  }
 
   if (summary.objections?.length) {
-    noteLines.push('**Objections raised:**');
+    noteLines.push('Objections Raised');
     summary.objections.forEach((o) => noteLines.push(`  • ${o}`));
     noteLines.push('');
   }
@@ -128,13 +151,13 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   if (dp.pain_points?.length) qualLines.push(`Pain points: ${dp.pain_points.join(', ')}`);
   if (dp.budget_signals) qualLines.push(`Budget signals: ${dp.budget_signals}`);
   if (qualLines.length) {
-    noteLines.push('**Qualification:**');
+    noteLines.push('Qualification');
     qualLines.forEach((q) => noteLines.push(`  ${q}`));
     noteLines.push('');
   }
 
   if (summary.follow_up_draft) {
-    noteLines.push(`**Suggested follow-up:** ${summary.follow_up_draft}`);
+    noteLines.push('Suggested Follow-up', summary.follow_up_draft);
   }
 
   const noteBody = noteLines.join('\n');
