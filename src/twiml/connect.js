@@ -33,7 +33,9 @@ router.post('/connect', (req, res) => {
   logger.info({ agentId, callSid }, 'TwiML connect request');
 
   // ElevenLabs native Twilio WebSocket stream URL
-  const wsUrl = `wss://api.elevenlabs.io/v1/convai/twilio?agent_id=${agentId}`;
+  // xi_api_key is required — private agents reject unauthenticated WebSocket connections,
+  // causing Twilio to receive no audio and immediately hang up (silent call bug).
+  const wsUrl = `wss://api.elevenlabs.io/v1/convai/twilio?agent_id=${agentId}&xi_api_key=${config.elevenLabs.apiKey}`;
 
   res.set('Content-Type', 'text/xml');
   res.send(`<?xml version="1.0" encoding="UTF-8"?>
