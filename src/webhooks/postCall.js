@@ -25,7 +25,6 @@ const { verifyElevenLabsSignature } = require('../middleware/verifyElevenLabs');
 const { findContactByPhone, findAssociatedDeal, normalizePhone } = require('../services/hubspot');
 const { lookup: registryLookup, remove: registryRemove } = require('../services/callRegistry');
 const {
-  addNote,
   logCallEngagement,
   createDeal,
   createFollowUpTask,
@@ -140,14 +139,11 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
 
   const noteBody = noteLines.join('\n');
 
-  // 4. Write HubSpot note
-  await addNote(contactId, noteBody);
-
-  // 5. Log call engagement
+  // 4. Log call engagement — full detail goes into the call body (no separate note needed)
   await logCallEngagement(contactId, {
     disposition: summary.disposition,
     durationSeconds,
-    notes: summary.outcome,
+    notes: noteBody,
   });
 
   // 6. Update lead status
