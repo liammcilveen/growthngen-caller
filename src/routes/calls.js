@@ -56,7 +56,9 @@ function requireTriggerAuth(req, res, next) {
 const triggerSchema = z.object({
   hubspot_contact_id: z.string().optional(),
   phone: z.string().optional(),
-  agent: z.enum(['will', 'kate']).optional().default('will'),
+  // agent is optional with no default — if omitted, the contact's sdr_assigned_agent
+  // property is used (see resolution logic below), falling back to 'will'.
+  agent: z.enum(['will', 'kate']).optional(),
 }).refine((d) => d.hubspot_contact_id || d.phone, {
   message: 'Either hubspot_contact_id or phone is required',
 });
@@ -71,7 +73,7 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
 
-  const { hubspot_contact_id, phone: rawPhone, agent } = parsed.data;
+  const { hubspot_contact_id, phone: rawPhone, agent: requestedAgent } = parsed.data;
 
   // ── Resolve contact + phone ───────────────────────────────────────────────
 
@@ -102,16 +104,27 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
     return res.status(422).json({ error: 'Could not resolve a phone number for this contact' });
   }
 
+  // ── Resolve agent ─────────────────────────────────────────────────────────
+  // Priority order:
+  //   1. Explicitly passed in request body (agent: "will"|"kate")
+  //   2. sdr_assigned_agent property on the HubSpot contact record
+  //   3. Default: "will"
+  const contactAgent = contact?.properties?.sdr_assigned_agent;
+  const agent = requestedAgent
+    || (['will', 'kate'].includes(contactAgent) ? contactAgent : null)
+    || 'will';
+
   // ── Build dynamic variables + first message ───────────────────────────────
 
   const summary = contact ? buildContactSummary(contact, deal) : defaultContactSummary();
 
-  // First message — Will speaks immediately when the call connects.
+  // First message — agent speaks immediately when the call connects.
   // Eliminates the silence/pause caused by the agent waiting for prospect to speak first.
   const firstName = summary.first_name !== 'there' ? summary.first_name : null;
+  const agentName = agent === 'kate' ? 'Kate' : 'Will';
   const firstMessage = firstName
-    ? `Hey ${firstName}, it's Will here from GrowthNGen — how's your day going?`
-    : `Hey, it's Will here from GrowthNGen — how's your day going?`;
+    ? `Hey ${firstName}, it's ${agentName} here from GrowthNGen — how's your day going?`
+    : `Hey, it's ${agentName} here from GrowthNGen — how's your day going?`;
 
   const dynamicVariables = {
     prospect_name: summary.prospect_name,

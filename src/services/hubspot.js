@@ -22,6 +22,7 @@ function headers() {
 const CONTACT_PROPS = [
   'firstname', 'lastname', 'email', 'phone', 'company', 'jobtitle',
   'hs_lead_status', 'sdr_notes', 'sdr_call_disposition', 'lead_source_detail',
+  'sdr_assigned_agent', // 'will' | 'kate' — used to auto-route calls when agent not specified
   // Cotality/project fields — present if previously enriched
   'cotality_project_type', 'cotality_project_value', 'cordell_project_type',
   // sdr_call_attempts and sdr_last_call_date removed — retired, auto-populated by HubSpot
