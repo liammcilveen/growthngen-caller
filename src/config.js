@@ -71,6 +71,7 @@ const config = {
 
   sdr: {
     triggerApiKey: optional('TRIGGER_API_KEY'),
+    hubspotWebhookToken: optional('HUBSPOT_WEBHOOK_TOKEN'),
     vpsHost: optional('VPS_HOST', 'localhost:3000'),
   },
 };

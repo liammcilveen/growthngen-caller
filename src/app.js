@@ -41,6 +41,7 @@ app.get('/health', (req, res) => {
 app.use('/webhooks', require('./webhooks/personalisation'));
 app.use('/webhooks', require('./webhooks/tools'));
 app.use('/webhooks', require('./webhooks/postCall'));
+app.use('/webhooks', require('./webhooks/hubspotLeadStatus'));
 app.use('/calls', require('./routes/calls'));
 app.use('/twiml', require('./twiml/connect'));
 

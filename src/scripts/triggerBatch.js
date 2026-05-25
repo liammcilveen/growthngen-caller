@@ -11,13 +11,17 @@
  *   node src/scripts/triggerBatch.js [options]
  *
  * Options:
- *   --lead-status   HubSpot hs_lead_status to target (default: "New")
- *   --max           Maximum calls to trigger (default: 20)
- *   --concurrency   Parallel calls in-flight (default: 3)
- *   --agent         "will" or "kate" (default: "will")
- *   --dry-run       Preview queue without triggering calls
- *   --host          Override VPS_HOST env var
- *   --api-key       Override TRIGGER_API_KEY env var
+ *   --lead-status        HubSpot hs_lead_status to target (default: "SDR_QUEUE")
+ *   --max                Maximum calls to trigger (default: 20)
+ *   --concurrency        Parallel calls in-flight (default: 3)
+ *   --agent              "will" or "kate" (default: "will")
+ *   --filter-by-agent    Filter HubSpot query by sdr_assigned_agent.
+ *                        "will"  → assigned=will OR unassigned (will is default)
+ *                        "kate"  → assigned=kate only
+ *                        Omit to fetch all contacts regardless of assignment.
+ *   --dry-run            Preview queue without triggering calls
+ *   --host               Override VPS_HOST env var
+ *   --api-key            Override TRIGGER_API_KEY env var
  */
 
 require('dotenv').config();
@@ -30,10 +34,11 @@ const http = require('http');
 function parseArgs() {
   const args = process.argv.slice(2);
   const opts = {
-    leadStatus: 'MAKE_CALL',
+    leadStatus: 'SDR_QUEUE',
     max: 20,
     concurrency: 3,
     agent: 'will',
+    filterByAgent: null, // null = no filter; 'will' | 'kate' = scoped query
     dryRun: false,
     host: process.env.VPS_HOST || 'localhost:3000',
     apiKey: process.env.TRIGGER_API_KEY || '',
@@ -45,6 +50,7 @@ function parseArgs() {
       case '--max': opts.max = parseInt(args[++i], 10); break;
       case '--concurrency': opts.concurrency = parseInt(args[++i], 10); break;
       case '--agent': opts.agent = args[++i]; break;
+      case '--filter-by-agent': opts.filterByAgent = args[++i]; break;
       case '--dry-run': opts.dryRun = true; break;
       case '--host': opts.host = args[++i]; break;
       case '--api-key': opts.apiKey = args[++i]; break;
@@ -58,7 +64,40 @@ function parseArgs() {
 
 // ── HubSpot contact search ────────────────────────────────────────────────────
 
-async function fetchEligibleContacts(leadStatus, max) {
+/**
+ * Build HubSpot filterGroups for the contact search.
+ *
+ * agentFilter = null  → no agent constraint (all contacts with the given status)
+ * agentFilter = 'will' → sdr_assigned_agent = 'will' OR sdr_assigned_agent NOT SET
+ *                        (unassigned contacts default to Will)
+ * agentFilter = 'kate' → sdr_assigned_agent = 'kate' only
+ *
+ * HubSpot search: filterGroups are OR'd; filters within a group are AND'd.
+ */
+function buildFilterGroups(leadStatus, agentFilter) {
+  const base = [
+    { propertyName: 'hs_lead_status', operator: 'EQ', value: leadStatus },
+    { propertyName: 'phone', operator: 'HAS_PROPERTY' },
+  ];
+
+  if (!agentFilter) {
+    return [{ filters: base }];
+  }
+
+  if (agentFilter === 'will') {
+    return [
+      { filters: [...base, { propertyName: 'sdr_assigned_agent', operator: 'EQ', value: 'will' }] },
+      { filters: [...base, { propertyName: 'sdr_assigned_agent', operator: 'NOT_HAS_PROPERTY' }] },
+    ];
+  }
+
+  // kate or any explicitly named agent — exact match only
+  return [
+    { filters: [...base, { propertyName: 'sdr_assigned_agent', operator: 'EQ', value: agentFilter }] },
+  ];
+}
+
+async function fetchEligibleContacts(leadStatus, max, agentFilter = null) {
   const hubspotKey = process.env.HUBSPOT_API_KEY;
   if (!hubspotKey) throw new Error('HUBSPOT_API_KEY not set');
 
@@ -67,16 +106,9 @@ async function fetchEligibleContacts(leadStatus, max) {
   const cutoffTs = cutoff.getTime();
 
   const body = JSON.stringify({
-    filterGroups: [
-      {
-        filters: [
-          { propertyName: 'hs_lead_status', operator: 'EQ', value: leadStatus },
-          { propertyName: 'phone', operator: 'HAS_PROPERTY' },
-        ],
-      },
-    ],
+    filterGroups: buildFilterGroups(leadStatus, agentFilter),
     properties: ['firstname', 'lastname', 'phone', 'company', 'hs_lead_status', 'sdr_last_call_date', 'sdr_assigned_agent'],
-    limit: Math.min(max * 3, 100), // fetch extra to account for filtered-out contacts
+    limit: Math.min(max * 3, 100), // fetch extra to account for post-filter drops
     sorts: [{ propertyName: 'sdr_last_call_date', direction: 'ASCENDING' }],
   });
 
@@ -237,18 +269,19 @@ async function main() {
 
   console.log('GrowthNGen Batch Call Trigger');
   console.log('─────────────────────────────────────────');
-  console.log(`Lead status : ${opts.leadStatus}`);
-  console.log(`Max calls   : ${opts.max}`);
-  console.log(`Concurrency : ${opts.concurrency}`);
-  console.log(`Agent       : ${opts.agent}`);
-  console.log(`Host        : ${opts.host}`);
-  console.log(`Dry run     : ${opts.dryRun}`);
+  console.log(`Lead status   : ${opts.leadStatus}`);
+  console.log(`Max calls     : ${opts.max}`);
+  console.log(`Concurrency   : ${opts.concurrency}`);
+  console.log(`Agent         : ${opts.agent}`);
+  console.log(`Agent filter  : ${opts.filterByAgent || 'none (all contacts)'}`);
+  console.log(`Host          : ${opts.host}`);
+  console.log(`Dry run       : ${opts.dryRun}`);
   console.log('─────────────────────────────────────────');
 
   let contacts;
   try {
     process.stdout.write('Fetching eligible contacts from HubSpot... ');
-    contacts = await fetchEligibleContacts(opts.leadStatus, opts.max);
+    contacts = await fetchEligibleContacts(opts.leadStatus, opts.max, opts.filterByAgent);
     contacts = contacts.slice(0, opts.max);
     console.log(`${contacts.length} found`);
   } catch (err) {
