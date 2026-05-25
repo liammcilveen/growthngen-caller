@@ -114,17 +114,13 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
     || (['will', 'kate'].includes(contactAgent) ? contactAgent : null)
     || 'will';
 
-  // ── Build dynamic variables + first message ───────────────────────────────
+  // ── Build dynamic variables ───────────────────────────────────────────────
 
   const summary = contact ? buildContactSummary(contact, deal) : defaultContactSummary();
 
-  // First message — agent speaks immediately when the call connects.
-  // Eliminates the silence/pause caused by the agent waiting for prospect to speak first.
-  const firstName = summary.first_name !== 'there' ? summary.first_name : null;
-  const agentName = agent === 'kate' ? 'Kate' : 'Will';
-  const firstMessage = firstName
-    ? `Hey ${firstName}, it's ${agentName} here from GrowthNGen — how's your day going?`
-    : `Hey, it's ${agentName} here from GrowthNGen — how's your day going?`;
+  // No first_message override — agent waits for prospect to speak (listen-first).
+  // The first_message override is enabled at the agent level (first_message: true in
+  // platform_settings.overrides) so we can re-enable it here if needed in future.
 
   const dynamicVariables = {
     prospect_name: summary.prospect_name,
@@ -168,11 +164,6 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
         to_number: phone,
         conversation_initiation_client_data: {
           dynamic_variables: dynamicVariables,
-          conversation_config_override: {
-            agent: {
-              first_message: firstMessage,
-            },
-          },
         },
       },
       {
