@@ -101,9 +101,16 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
     return res.status(422).json({ error: 'Could not resolve a phone number for this contact' });
   }
 
-  // ── Build dynamic variables from HubSpot context ─────────────────────────
+  // ── Build dynamic variables + first message ───────────────────────────────
 
   const summary = contact ? buildContactSummary(contact, deal) : defaultContactSummary();
+
+  // First message — Will speaks immediately when the call connects.
+  // Eliminates the silence/pause caused by the agent waiting for prospect to speak first.
+  const firstName = summary.first_name !== 'there' ? summary.first_name : null;
+  const firstMessage = firstName
+    ? `Hey ${firstName}, it's Will here from GrowthNGen — how's your day going?`
+    : `Hey, it's Will here from GrowthNGen — how's your day going?`;
 
   const dynamicVariables = {
     prospect_name: summary.prospect_name,
@@ -147,6 +154,11 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
         to_number: phone,
         conversation_initiation_client_data: {
           dynamic_variables: dynamicVariables,
+          conversation_config_override: {
+            agent: {
+              first_message: firstMessage,
+            },
+          },
         },
       },
       {
