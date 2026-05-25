@@ -20,8 +20,15 @@ const logger = createLogger({
       format: format.combine(
         format.colorize(),
         format.printf(({ timestamp, level, message, ...meta }) => {
+          // Winston receives object-style calls (pino convention: logger.info({...}, 'msg')).
+          // When the first arg is a plain object without a message key, Winston sets
+          // message = that object (reference, not string) — coercing gives [object Object].
+          // Serialize it properly here.
+          const msg = typeof message === 'object' && message !== null
+            ? JSON.stringify(message)
+            : String(message ?? '');
           const extras = Object.keys(meta).length ? ' ' + JSON.stringify(meta) : '';
-          return `${timestamp} ${level}: ${message}${extras}`;
+          return `${timestamp} ${level}: ${msg}${extras}`;
         })
       ),
     }),
