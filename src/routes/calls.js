@@ -190,6 +190,8 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
       to: phone,
       agent,
       hubspot_contact_id: contactId || null,
+      contact_name: summary.prospect_name || null,
+      company_name: summary.company_name || null,
     });
 
   } catch (err) {
