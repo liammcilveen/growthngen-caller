@@ -4,28 +4,35 @@
  * Phase 4 — Outbound Call Trigger
  *
  * POST /calls/trigger
- *   Initiates a Twilio outbound call to a prospect.
- *   Requires Bearer token in Authorization header (TRIGGER_API_KEY).
+ *   Initiates a call via the ElevenLabs Outbound Call API.
+ *   ElevenLabs manages the Twilio bridge internally — no TwiML needed.
+ *   Mirrors the approach used by the Python AIOS caller (apps/sdr_caller/caller.py).
  *
  * Body: { hubspot_contact_id?, phone?, agent?: "will"|"kate" }
  *
  * Flow:
  *   1. Verify Bearer token
- *   2. Look up contact in HubSpot (if contact_id provided)
- *   3. Initiate Twilio call → TwiML connects to ElevenLabs
- *   4. Log the initiated call
- *   5. Return { call_sid, status }
+ *   2. Resolve phone + contact from HubSpot
+ *   3. Build dynamic_variables from contact context
+ *   4. POST to ElevenLabs /v1/convai/twilio/outbound-call
+ *   5. Return { conversation_id, call_sid, status }
  */
 
 const express = require('express');
 const router = express.Router();
-const twilio = require('twilio');
+const axios = require('axios');
 const { z } = require('zod');
 const logger = require('../logger');
 const { config } = require('../config');
-const { findContactById, findContactByPhone } = require('../services/hubspot');
+const {
+  findContactById,
+  findContactByPhone,
+  findAssociatedDeal,
+  buildContactSummary,
+  defaultContactSummary,
+} = require('../services/hubspot');
 
-const twilioClient = twilio(config.twilio.accountSid, config.twilio.authToken);
+const EL_BASE = 'https://api.elevenlabs.io';
 
 // ── Bearer auth middleware ────────────────────────────────────────────────────
 
@@ -65,64 +72,110 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
 
   const { hubspot_contact_id, phone: rawPhone, agent } = parsed.data;
 
-  // Resolve phone number
+  // ── Resolve contact + phone ───────────────────────────────────────────────
+
   let phone = rawPhone;
   let contactId = hubspot_contact_id;
+  let contact = null;
+  let deal = null;
 
-  if (hubspot_contact_id && !phone) {
-    const contact = await findContactById(hubspot_contact_id);
+  if (hubspot_contact_id) {
+    contact = await findContactById(hubspot_contact_id);
     if (!contact) {
       return res.status(404).json({ error: `HubSpot contact ${hubspot_contact_id} not found` });
     }
-    phone = contact.properties?.phone || '';
+    phone = phone || contact.properties?.phone || '';
     if (!phone) {
       return res.status(422).json({ error: 'Contact has no phone number in HubSpot' });
     }
-  } else if (phone && !contactId) {
-    const contact = await findContactByPhone(phone);
-    contactId = contact?.id || null;
+    deal = await findAssociatedDeal(hubspot_contact_id);
+  } else if (phone) {
+    contact = await findContactByPhone(phone);
+    if (contact) {
+      contactId = contact.id;
+      deal = await findAssociatedDeal(contact.id);
+    }
   }
 
   if (!phone) {
     return res.status(422).json({ error: 'Could not resolve a phone number for this contact' });
   }
 
-  // Pick agent
+  // ── Build dynamic variables from HubSpot context ─────────────────────────
+
+  const summary = contact ? buildContactSummary(contact, deal) : defaultContactSummary();
+
+  const dynamicVariables = {
+    prospect_name: summary.prospect_name,
+    first_name: summary.first_name,
+    company_name: summary.company_name,
+    job_title: summary.job_title,
+    deal_stage: summary.deal_stage,
+    last_contact_notes: summary.last_contact_notes,
+    project_type: summary.project_type,
+    project_value: summary.project_value,
+    caller_id_hint: summary.caller_id_hint,
+    hubspot_contact_id: summary.hubspot_contact_id,
+    hubspot_deal_id: summary.deal_id,
+  };
+
+  // ── Pick agent + phone number ID ──────────────────────────────────────────
+
   const agentId = agent === 'kate' && config.elevenLabs.agentIdKate
     ? config.elevenLabs.agentIdKate
     : config.elevenLabs.agentId;
 
-  // TwiML URL — the VPS endpoint that returns the <Connect><Stream> XML
-  const vpsHost = config.sdr.vpsHost;
-  const twimlUrl = vpsHost.startsWith('http')
-    ? `${vpsHost}/twiml/connect?agent_id=${agentId}`
-    : `https://${vpsHost}/twiml/connect?agent_id=${agentId}`;
+  const phoneNumberId = agent === 'kate' && config.elevenLabs.phoneNumberIdKate
+    ? config.elevenLabs.phoneNumberIdKate
+    : config.elevenLabs.phoneNumberId;
+
+  if (!phoneNumberId) {
+    logger.error({ agent }, 'ElevenLabs phone number ID not configured');
+    return res.status(500).json({ error: 'ElevenLabs phone number not configured' });
+  }
+
+  // ── Initiate via ElevenLabs Outbound Call API ─────────────────────────────
+  // Mirrors: client.conversational_ai.twilio.outbound_call(...) in Python AIOS caller.
+  // ElevenLabs handles the Twilio bridge internally — no TwiML or WebSocket management needed.
 
   try {
-    const call = await twilioClient.calls.create({
-      to: phone,
-      from: config.twilio.phoneNumber,
-      url: twimlUrl,
-      method: 'POST',
-      statusCallback: vpsHost.startsWith('http')
-        ? `${vpsHost}/webhooks/post-call`
-        : `https://${vpsHost}/webhooks/post-call`,
-      statusCallbackMethod: 'POST',
-    });
+    const elRes = await axios.post(
+      `${EL_BASE}/v1/convai/twilio/outbound-call`,
+      {
+        agent_id: agentId,
+        agent_phone_number_id: phoneNumberId,
+        to_number: phone,
+        conversation_initiation_client_data: {
+          dynamic_variables: dynamicVariables,
+        },
+      },
+      {
+        headers: {
+          'xi-api-key': config.elevenLabs.apiKey,
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000,
+      }
+    );
 
-    logger.info({ callSid: call.sid, phone, agentId, contactId }, 'Twilio call initiated');
+    const { conversation_id, call_sid } = elRes.data;
+
+    logger.info({ conversation_id, call_sid, phone, agentId, contactId }, 'ElevenLabs outbound call initiated');
 
     res.json({
-      call_sid: call.sid,
-      status: call.status,
+      conversation_id,
+      call_sid: call_sid || null,
+      status: 'initiated',
       to: phone,
-      agent: agent,
+      agent,
       hubspot_contact_id: contactId || null,
     });
 
   } catch (err) {
-    logger.error({ err: err.message, phone }, 'Twilio call initiation failed');
-    res.status(500).json({ error: 'Call initiation failed', detail: err.message });
+    const status = err.response?.status;
+    const detail = err.response?.data || err.message;
+    logger.error({ err: err.message, status, detail, phone, agentId }, 'ElevenLabs outbound call failed');
+    res.status(500).json({ error: 'Call initiation failed', detail });
   }
 });
 
