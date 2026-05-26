@@ -11,9 +11,9 @@ const { config } = require('../config');
 
 const VALID_DISPOSITIONS = [
   'qualified_booked', 'qualified_send_link', 'qualified_callback',
-  'interested_not_qualified', 'not_interested', 'gatekeeper_blocked',
-  'no_answer', 'voicemail_left', 'wrong_number', 'do_not_call',
-  'human_requested', 'declined_ai',
+  'interested_not_qualified', 'not_qualified', 'not_interested',
+  'gatekeeper_blocked', 'no_answer', 'voicemail_left', 'wrong_number',
+  'do_not_call', 'human_requested', 'declined_ai',
 ];
 
 function buildSystemPrompt(agentName) {
@@ -25,7 +25,7 @@ Extract the following in valid JSON — no preamble, no markdown fences, just th
 
 {
   "outcome": "1-2 sentence plain English summary of how the call went",
-  "disposition": "one of: qualified_booked|qualified_send_link|qualified_callback|interested_not_qualified|not_interested|gatekeeper_blocked|no_answer|voicemail_left|wrong_number|do_not_call|human_requested|declined_ai",
+  "disposition": "one of the values below — choose carefully:\n    qualified_booked         = meeting confirmed and booked\n    qualified_send_link      = qualified, sending demo/info link\n    qualified_callback       = qualified, callback agreed at a specific time\n    interested_not_qualified = prospect engaged and interested but qualification criteria not yet confirmed (needs another call)\n    not_qualified            = hard ICP mismatch confirmed — prospect does NOT use HubSpot, is not in construction, or ${agentName} determined bad fit and ended the call\n    not_interested           = prospect clearly does not want the product\n    gatekeeper_blocked       = could not reach decision maker\n    no_answer                = call not answered\n    voicemail_left           = left a voicemail message\n    wrong_number             = number belongs to wrong person/company\n    do_not_call              = prospect asked to be removed\n    human_requested          = prospect wants to speak to a human (Liam)\n    declined_ai              = prospect refused to speak to an AI",
   "objections": ["list of objections the prospect raised"],
   "next_action": "specific next action agreed or implied (e.g. 'Send intro email', 'Call back Thursday 10am')",
   "data_points": {

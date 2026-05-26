@@ -24,6 +24,7 @@ const DISPOSITION_TO_LEAD_STATUS = {
   qualified_send_link:      'QUALIFIED',
   qualified_callback:       'QUALIFIED',
   interested_not_qualified: 'UNQUALIFIED',
+  not_qualified:            'UNQUALIFIED',
   not_interested:           'NOT_INTERESTED',
   gatekeeper_blocked:       'ATTEMPTED_TO_CONTACT',
   no_answer:                'ATTEMPTED_TO_CONTACT',
