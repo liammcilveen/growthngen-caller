@@ -31,7 +31,7 @@ const {
   buildContactSummary,
   defaultContactSummary,
 } = require('../services/hubspot');
-const { register: registerCall } = require('../services/callRegistry');
+const { register: registerCall, active: callActive } = require('../services/callRegistry');
 
 const EL_BASE = 'https://api.elevenlabs.io';
 
@@ -61,6 +61,14 @@ const triggerSchema = z.object({
   agent: z.enum(['will', 'kate']).optional(),
 }).refine((d) => d.hubspot_contact_id || d.phone, {
   message: 'Either hubspot_contact_id or phone is required',
+});
+
+// ── GET /calls/active ─────────────────────────────────────────────────────────
+// No auth required — returns a simple boolean, no sensitive data exposed.
+// Used by the n8n sdr-callback-trigger to skip a tick when a call is live.
+
+router.get('/active', (req, res) => {
+  res.json({ active: callActive() });
 });
 
 // ── POST /calls/trigger ───────────────────────────────────────────────────────

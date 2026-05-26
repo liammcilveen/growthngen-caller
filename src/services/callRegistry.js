@@ -53,6 +53,16 @@ function remove(conversationId) {
 }
 
 /**
+ * Returns true if at least one non-expired call is currently registered.
+ * Used by GET /calls/active so the n8n scheduler can skip a tick rather
+ * than firing a second call while one is still in progress.
+ */
+function active() {
+  prune();
+  return registry.size > 0;
+}
+
+/**
  * Prune expired entries. Called internally — no need to invoke manually.
  */
 function prune() {
@@ -65,4 +75,4 @@ function prune() {
 // Prune expired entries every 30 minutes
 setInterval(prune, 30 * 60 * 1000).unref();
 
-module.exports = { register, lookup, remove };
+module.exports = { register, lookup, remove, active };
