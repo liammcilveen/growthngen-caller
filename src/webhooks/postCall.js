@@ -110,9 +110,16 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   const callMeta = metadata || {};
   const durationSeconds = callMeta.call_duration_secs || 0;
 
+  // Resolve agent FIRST — needed by the summariser to write notes in the right voice.
+  // Priority: call registry (set at initiation) → dynamic_variables → default 'will'
+  const registryEntry = registryLookup(conversation_id);
+  if (registryEntry) registryRemove(conversation_id);
+  const dynVars = callMeta?.conversation_initiation_client_data?.dynamic_variables || {};
+  const callingAgent = registryEntry?.agent || dynVars.agent || 'will';
+
   // 1. Claude summarisation
-  // Pass current AEST time so Claude can resolve relative callback times
-  // (e.g. "in an hour", "this afternoon") to absolute ISO datetimes.
+  // Pass agent name and current AEST time so Claude writes notes in the correct
+  // agent's voice and resolves relative callback times to absolute ISO datetimes.
   const nowAest = new Date().toLocaleString('en-AU', {
     timeZone: 'Australia/Sydney',
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -121,10 +128,11 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   const summary = await summariseCall(transcript || [], {
     conversation_id,
     duration: durationSeconds,
-    current_time_aest: nowAest,     // e.g. "26/05/2026, 10:46" — for relative time resolution
+    agent: callingAgent,             // "will" | "kate" — drives system prompt + transcript labels
+    current_time_aest: nowAest,      // e.g. "26/05/2026, 10:46" — for relative time resolution
   });
 
-  logger.info({ disposition: summary.disposition, conversation_id }, 'post-call summary complete');
+  logger.info({ disposition: summary.disposition, agent: callingAgent, conversation_id }, 'post-call summary complete');
 
   // 2. Find HubSpot contact
   // Priority order:
@@ -133,13 +141,7 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   //   C. Phone lookup via metadata.to_number (outbound prospect number)
   //   D. Phone lookup via metadata.caller_id (may be ElevenLabs' own number — least reliable)
 
-  const registryEntry = registryLookup(conversation_id);
-  if (registryEntry) registryRemove(conversation_id);
-  // Which SDR made this call — used to assign the callback task to the correct queue
-  const callingAgent = registryEntry?.agent || 'will';
-
-  // Dynamic variables passed at call initiation — available in metadata on the post-call payload
-  const dynVars = callMeta?.conversation_initiation_client_data?.dynamic_variables || {};
+  // dynVars resolved above (before summarisation)
 
   // contactId priority: registry (most reliable) → dynamic_variables → phone lookup
   let contactId = registryEntry?.contactId || dynVars.hubspot_contact_id || null;

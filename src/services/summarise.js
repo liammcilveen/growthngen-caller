@@ -16,9 +16,10 @@ const VALID_DISPOSITIONS = [
   'human_requested', 'declined_ai',
 ];
 
-const SYSTEM_PROMPT = `You are a CRM analyst reviewing a transcript of an outbound AI SDR call made by Will, a GrowthNGen AI agent, to a construction industry prospect in Australia.
+function buildSystemPrompt(agentName) {
+  return `You are a CRM analyst reviewing a transcript of an outbound AI SDR call made by ${agentName}, a GrowthNGen AI agent, to a construction industry prospect in Australia.
 
-GrowthNGen automates the flow of Cotality construction project data into HubSpot CRM, eliminating manual data entry for construction sales teams. Will qualifies prospects on: HubSpot usage, construction data source (Cordell Connect, BCI, etc.), team size, and pain points.
+GrowthNGen automates the flow of Cotality construction project data into HubSpot CRM, eliminating manual data entry for construction sales teams. ${agentName} qualifies prospects on: HubSpot usage, construction data source (Cordell Connect, BCI, etc.), team size, and pain points.
 
 Extract the following in valid JSON — no preamble, no markdown fences, just the JSON object:
 
@@ -35,19 +36,20 @@ Extract the following in valid JSON — no preamble, no markdown fences, just th
     "project_names": ["any construction project names or types mentioned"],
     "budget_signals": "any pricing or budget signals mentioned"
   },
-  "follow_up_draft": "1-2 sentence follow-up message to send after this call, in Will's voice, referencing something specific from the conversation",
+  "follow_up_draft": "1-2 sentence follow-up message to send after this call, in ${agentName}'s voice, referencing something specific from the conversation",
   "callback_datetime": "If a specific callback time was agreed, return it as an ISO 8601 string in AEST (UTC+10), e.g. '2026-05-26T14:00:00+10:00'. Use the current_time_aest from call metadata to resolve relative times like 'in an hour' or 'this afternoon' into absolute datetimes. Otherwise null."
 }`;
+}
 
 /**
  * Format an ElevenLabs transcript array into readable text.
  * ElevenLabs format: [{ role: "agent"|"user", message: "..." }]
  */
-function formatTranscript(transcriptItems) {
+function formatTranscript(transcriptItems, agentName = 'Will') {
   if (!Array.isArray(transcriptItems) || !transcriptItems.length) return '';
   return transcriptItems
     .map((item) => {
-      const speaker = item.role === 'agent' ? 'Will' : 'Prospect';
+      const speaker = item.role === 'agent' ? agentName : 'Prospect';
       return `${speaker}: ${item.message || ''}`;
     })
     .filter((line) => line.trim().length > 6)
@@ -60,7 +62,11 @@ function formatTranscript(transcriptItems) {
  * Falls back to a safe default if Claude errors or returns unparseable JSON.
  */
 async function summariseCall(transcriptItems, metadata = {}) {
-  const transcriptText = formatTranscript(transcriptItems);
+  // Agent name — passed via metadata.agent, falls back to 'Will'
+  const rawAgent = (metadata.agent || 'will').toLowerCase();
+  const agentName = rawAgent === 'kate' ? 'Kate' : 'Will';
+
+  const transcriptText = formatTranscript(transcriptItems, agentName);
 
   if (!transcriptText) {
     logger.warn('summariseCall: empty transcript — returning default');
@@ -75,7 +81,7 @@ async function summariseCall(transcriptItems, metadata = {}) {
     const message = await client.messages.create({
       model: 'claude-haiku-4-5',
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: buildSystemPrompt(agentName),
       messages: [{ role: 'user', content: userMessage }],
     });
 
