@@ -275,11 +275,11 @@ async function enrollInWorkflow(objectId, workflowId) {
 /**
  * Create a follow-up task for Liam on a contact.
  */
-async function createFollowUpTask(contactId, subject, body = '') {
+async function createFollowUpTask(contactId, subject, body = '', dueMsOverride = null) {
   if (!contactId || !config.hubspot.apiKey) return null;
 
   const nowMs = Date.now();
-  const dueMsNextDay = nowMs + 24 * 60 * 60 * 1000;
+  const dueMsNextDay = dueMsOverride || (nowMs + 24 * 60 * 60 * 1000);
 
   const props = {
     hs_task_subject: subject,

@@ -35,7 +35,8 @@ Extract the following in valid JSON — no preamble, no markdown fences, just th
     "project_names": ["any construction project names or types mentioned"],
     "budget_signals": "any pricing or budget signals mentioned"
   },
-  "follow_up_draft": "1-2 sentence follow-up message to send after this call, in Will's voice, referencing something specific from the conversation"
+  "follow_up_draft": "1-2 sentence follow-up message to send after this call, in Will's voice, referencing something specific from the conversation",
+  "callback_datetime": "If a specific callback time was agreed (e.g. '2pm today', 'Thursday morning'), return it as an ISO 8601 string in AEST (UTC+10), e.g. '2026-05-26T14:00:00+10:00'. Otherwise null."
 }`;
 
 /**

@@ -189,13 +189,23 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
     );
   }
 
-  // 8b. Callback task — schedule a return call with context
+  // 8b. Callback task — schedule a return call at the agreed time
   if (summary.disposition === 'qualified_callback') {
+    // Parse callback time from Claude's extracted datetime, fall back to +4h
+    let callbackDueMs = Date.now() + 4 * 60 * 60 * 1000;
+    if (summary.callback_datetime) {
+      const parsed = new Date(summary.callback_datetime).getTime();
+      if (!isNaN(parsed) && parsed > Date.now()) callbackDueMs = parsed;
+    }
+
+    const timeLabel = summary.next_action || 'Callback requested';
     await createFollowUpTask(
       contactId,
-      `SDR Callback — ${rawPhone}`,
-      `${summary.outcome}\n\n${summary.follow_up_draft || ''}`
+      `SDR Callback: ${timeLabel}`,
+      `${summary.outcome}\n\nSuggested follow-up:\n${summary.follow_up_draft || ''}`,
+      callbackDueMs
     );
+    logger.info({ contactId, callbackDueMs, timeLabel }, 'SDR callback task created');
   }
 
   // 9. Hot lead workflow if flagged
