@@ -35,6 +35,7 @@ const {
   setHotLeadFlag,
 } = require('../services/hubspotWriter');
 const { summariseCall } = require('../services/summarise');
+const { sendMessage: sendTelegram } = require('../services/telegram');
 
 // Dispositions that create a HubSpot deal
 const DEAL_DISPOSITIONS = new Set(['qualified_booked', 'qualified_send_link']);
@@ -307,7 +308,87 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
     }
   }
 
+  // 10. Telegram post-call summary
+  await sendPostCallTelegram({ summary, callingAgent, durationSeconds, contactId, conversation_id });
+
   logger.info({ contactId, disposition: summary.disposition, conversation_id }, 'post-call processing complete');
+}
+
+// ── Post-Call Telegram Summary ─────────────────────────────────────────────────
+
+const DISPOSITION_EMOJI = {
+  qualified_booked:         '🎉',
+  qualified_send_link:      '📎',
+  qualified_callback:       '📅',
+  interested_not_qualified: '🤔',
+  not_interested:           '👋',
+  gatekeeper_blocked:       '🚧',
+  no_answer:                '📵',
+  voicemail_left:           '📬',
+  wrong_number:             '❌',
+  do_not_call:              '🚫',
+  human_requested:          '🙋',
+  declined_ai:              '🤖',
+};
+
+const DISPOSITION_LABELS_TG = {
+  qualified_booked:         'Meeting Booked',
+  qualified_send_link:      'Send Link',
+  qualified_callback:       'Callback Requested',
+  interested_not_qualified: 'Interested — Not Qualified',
+  not_interested:           'Not Interested',
+  gatekeeper_blocked:       'Gatekeeper',
+  no_answer:                'No Answer',
+  voicemail_left:           'Voicemail Left',
+  wrong_number:             'Wrong Number',
+  do_not_call:              'Do Not Call',
+  human_requested:          'Human Follow-up',
+  declined_ai:              'Declined AI Call',
+};
+
+async function sendPostCallTelegram({ summary, callingAgent, durationSeconds, contactId, conversation_id }) {
+  try {
+    const agentLabel = callingAgent.charAt(0).toUpperCase() + callingAgent.slice(1);
+    const dispositionLabel = DISPOSITION_LABELS_TG[summary.disposition] || summary.disposition;
+    const emoji = DISPOSITION_EMOJI[summary.disposition] || '📞';
+    const mins = Math.floor(durationSeconds / 60);
+    const secs = durationSeconds % 60;
+    const durationLabel = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+    const lines = [
+      `${emoji} <b>${agentLabel} SDR Call — ${dispositionLabel}</b>`,
+      `⏱ ${durationLabel}`,
+      '',
+    ];
+
+    if (summary.outcome) {
+      lines.push(summary.outcome, '');
+    }
+
+    // Callback detail — most actionable, surface prominently
+    if (summary.disposition === 'qualified_callback') {
+      const callbackStr = summary.callback_datetime
+        ? new Date(summary.callback_datetime).toLocaleString('en-AU', {
+            timeZone: 'Australia/Sydney',
+            weekday: 'short', day: 'numeric', month: 'short',
+            hour: 'numeric', minute: '2-digit', hour12: true,
+          })
+        : null;
+      lines.push(`📅 <b>Callback:</b> ${callbackStr || (summary.next_action || 'Time TBC')}`);
+      lines.push('');
+    }
+
+    // Next action for other dispositions worth noting
+    if (summary.next_action && summary.disposition !== 'qualified_callback') {
+      lines.push(`➡️ ${summary.next_action}`, '');
+    }
+
+    lines.push(`<a href="https://elevenlabs.io/app/conversational-ai/history/${conversation_id}">Transcript</a>`);
+
+    await sendTelegram(lines.join('\n'));
+  } catch (err) {
+    logger.warn({ err: err.message }, 'sendPostCallTelegram failed (non-fatal)');
+  }
 }
 
 module.exports = router;
