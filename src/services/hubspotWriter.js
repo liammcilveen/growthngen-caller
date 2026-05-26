@@ -50,13 +50,16 @@ async function updateLeadStatus(contactId, disposition, notes = '') {
   if (!contactId || !config.hubspot.apiKey) return null;
 
   const leadStatus = DISPOSITION_TO_LEAD_STATUS[disposition] || 'ATTEMPTED_TO_CONTACT';
+  // HubSpot date properties require epoch ms at midnight UTC
+  const todayMidnightUtc = new Date();
+  todayMidnightUtc.setUTCHours(0, 0, 0, 0);
+
   const props = {
     hs_lead_status: leadStatus,
     sdr_call_disposition: disposition,
-    sdr_last_call_date: String(Date.now()),
-    // sdr_callback_date is cleared on every post-call update and re-set
-    // separately (via setCallbackDate) when disposition = qualified_callback
-    sdr_callback_date: '',
+    sdr_last_call_date: String(todayMidnightUtc.getTime()),
+    // Note: sdr_callback_date is NOT cleared here — date properties reject ''
+    // and it's set separately via setCallbackDate() only for qualified_callback.
   };
   if (notes) props.sdr_notes = notes;
 
@@ -306,13 +309,16 @@ async function incrementCallAttempts(contactId) {
  */
 async function setCallbackDate(contactId, callbackDateMs) {
   if (!contactId || !config.hubspot.apiKey) return null;
+  // HubSpot date properties require epoch ms at midnight UTC
+  const d = new Date(callbackDateMs);
+  d.setUTCHours(0, 0, 0, 0);
   try {
     await axios.patch(
       `${BASE}/crm/v3/objects/contacts/${contactId}`,
-      { properties: { sdr_callback_date: String(callbackDateMs) } },
+      { properties: { sdr_callback_date: String(d.getTime()) } },
       { headers: headers(), timeout: 10000 }
     );
-    logger.info({ contactId, callbackDateMs }, 'HubSpot sdr_callback_date set');
+    logger.info({ contactId, callbackDateMs, callbackDate: d.toISOString().slice(0, 10) }, 'HubSpot sdr_callback_date set');
     return true;
   } catch (err) {
     logger.error({ err: err.message, contactId }, 'HubSpot setCallbackDate failed');
