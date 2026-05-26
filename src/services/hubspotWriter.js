@@ -272,10 +272,26 @@ async function enrollInWorkflow(objectId, workflowId) {
   }
 }
 
+// HubSpot task queue IDs — tasks in these queues are picked up by the
+// sdr-callback-trigger n8n workflow and fire the appropriate SDR agent.
+// Manual tasks without a queue ID are ignored by the workflow (safe to create freely).
+const SDR_QUEUE_IDS = {
+  will: '236612612',
+  kate: '236612613',
+};
+
 /**
- * Create a follow-up task for Liam on a contact.
+ * Create a follow-up task on a contact.
+ *
+ * @param {string}      contactId     HubSpot contact ID
+ * @param {string}      subject       Task title
+ * @param {string}      body          Task notes
+ * @param {number|null} dueMsOverride Due timestamp in ms (defaults to +24h)
+ * @param {string|null} agent         'will'|'kate' — assigns to SDR queue so the
+ *                                    n8n callback trigger picks it up. Pass null
+ *                                    for manual/Liam tasks (no queue assignment).
  */
-async function createFollowUpTask(contactId, subject, body = '', dueMsOverride = null) {
+async function createFollowUpTask(contactId, subject, body = '', dueMsOverride = null, agent = null) {
   if (!contactId || !config.hubspot.apiKey) return null;
 
   const nowMs = Date.now();
@@ -289,6 +305,10 @@ async function createFollowUpTask(contactId, subject, body = '', dueMsOverride =
     // hs_timestamp IS the due date for HubSpot tasks (hs_task_due_date does not exist)
     hs_timestamp: String(dueMsNextDay),
   };
+  // Assign to the SDR queue so the n8n callback trigger picks it up.
+  // Only set for SDR callback tasks (agent = 'will'|'kate'), not for manual/Liam tasks.
+  const queueId = agent ? SDR_QUEUE_IDS[agent] : null;
+  if (queueId) props.hs_queue_membership_ids = queueId;
   if (config.hubspot.ownerId) props.hubspot_owner_id = config.hubspot.ownerId;
 
   try {

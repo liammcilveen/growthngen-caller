@@ -81,6 +81,8 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
 
   const registryEntry = registryLookup(conversation_id);
   if (registryEntry) registryRemove(conversation_id);
+  // Which SDR made this call — used to assign the callback task to the correct queue
+  const callingAgent = registryEntry?.agent || 'will';
 
   // Dynamic variables passed at call initiation — available in metadata on the post-call payload
   const dynVars = callMeta?.conversation_initiation_client_data?.dynamic_variables || {};
@@ -203,9 +205,10 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
       contactId,
       `SDR Callback: ${timeLabel}`,
       `${summary.outcome}\n\nSuggested follow-up:\n${summary.follow_up_draft || ''}`,
-      callbackDueMs
+      callbackDueMs,
+      callingAgent  // assigns to Will's or Kate's SDR queue — picked up by n8n
     );
-    logger.info({ contactId, callbackDueMs, timeLabel }, 'SDR callback task created');
+    logger.info({ contactId, callbackDueMs, timeLabel, callingAgent }, 'SDR callback task created');
   }
 
   // 9. Hot lead workflow if flagged
