@@ -179,8 +179,9 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   const secs = durationSeconds % 60;
   const durationLabel = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 
+  const agentLabel = callingAgent.charAt(0).toUpperCase() + callingAgent.slice(1);
   const noteLines = [
-    `AI SDR Call: ${dispositionLabel}`,
+    `${agentLabel} SDR Call: ${dispositionLabel}`,
     `Duration: ${durationLabel}  |  Transcript: ${transcriptUrl}`,
     '',
     'Outcome',
