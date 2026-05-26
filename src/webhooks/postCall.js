@@ -29,6 +29,7 @@ const {
   incrementCallAttempts,
   setCallbackDate,
   createDeal,
+  updateDealStage,
   createFollowUpTask,
   updateLeadStatus,
   setHotLeadFlag,
@@ -37,6 +38,15 @@ const { summariseCall } = require('../services/summarise');
 
 // Dispositions that create a HubSpot deal
 const DEAL_DISPOSITIONS = new Set(['qualified_booked', 'qualified_send_link']);
+
+// Deal stages eligible to be upgraded to Demo Booked on a qualified_booked disposition.
+// Stages at or beyond Demo Booked are left untouched.
+const UPGRADEABLE_TO_DEMO_BOOKED = new Set([
+  '1165694817',  // Qualified Opportunity (default)
+  '1165694818',  // Attempting Contact
+  '1165694819',  // Contact Made
+]);
+const DEMO_BOOKED_STAGE = '1127536670';
 
 // Dispositions that create a follow-up task for Liam
 const TASK_DISPOSITIONS = {
@@ -190,12 +200,24 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   // 6. Update lead status + sdr_last_call_date (clears sdr_callback_date — re-set below if needed)
   await updateLeadStatus(contactId, summary.disposition, summary.outcome);
 
-  // 7. Create deal if qualified
+  // 7. Create or advance deal if qualified
   const deal = await findAssociatedDeal(contactId, 3000);
-  if (DEAL_DISPOSITIONS.has(summary.disposition) && !deal?.id) {
-    const contact = await findContactByPhone(rawPhone);
-    const companyName = contact?.properties?.company || 'Unknown';
-    await createDeal(contactId, companyName, summary.disposition, summary.outcome);
+  if (DEAL_DISPOSITIONS.has(summary.disposition)) {
+    if (!deal?.id) {
+      // No deal yet — create one
+      const contact = await findContactByPhone(rawPhone);
+      const companyName = contact?.properties?.company || 'Unknown';
+      await createDeal(contactId, companyName, summary.disposition, summary.outcome);
+    } else if (
+      summary.disposition === 'qualified_booked' &&
+      UPGRADEABLE_TO_DEMO_BOOKED.has(deal.properties?.dealstage)
+    ) {
+      // Existing deal is at an early stage — advance it to Demo Booked
+      await updateDealStage(deal.id, DEMO_BOOKED_STAGE, summary.outcome);
+      logger.info({ dealId: deal.id, fromStage: deal.properties?.dealstage }, 'Deal advanced to Demo Booked');
+    } else {
+      logger.info({ dealId: deal.id, dealStage: deal.properties?.dealstage, disposition: summary.disposition }, 'Deal already at or beyond target stage — no update');
+    }
   }
 
   // 8. Create follow-up task for Liam if needed

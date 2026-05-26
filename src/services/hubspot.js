@@ -100,10 +100,13 @@ async function findContactById(contactId, timeoutMs = 1500) {
 /**
  * Find the most recent deal associated with a contact.
  */
-async function findAssociatedDeal(contactId, timeoutMs = 1500) {
+// Deal stages that are considered "closed" — don't advance past these
+const CLOSED_DEAL_STAGES = new Set(['closedwon', 'closedlost']);
+
+async function findAssociatedDeal(contactId, timeoutMs = 3000) {
   if (!contactId) return null;
   try {
-    // Get deal associations
+    // Get all associated deal IDs
     const assocResp = await axios.get(
       `${BASE}/crm/v4/objects/contacts/${contactId}/associations/deals`,
       { headers: headers(), timeout: timeoutMs }
@@ -111,13 +114,36 @@ async function findAssociatedDeal(contactId, timeoutMs = 1500) {
     const dealIds = assocResp.data.results?.map((r) => r.toObjectId) || [];
     if (!dealIds.length) return null;
 
-    // Fetch the most recent deal
-    const dealResp = await axios.get(
-      `${BASE}/crm/v3/objects/deals/${dealIds[0]}`,
-      { headers: headers(), params: { properties: DEAL_PROPS.join(',') }, timeout: timeoutMs }
+    if (dealIds.length === 1) {
+      // Fast path — single deal
+      const dealResp = await axios.get(
+        `${BASE}/crm/v3/objects/deals/${dealIds[0]}`,
+        { headers: headers(), params: { properties: [...DEAL_PROPS, 'createdate'].join(',') }, timeout: timeoutMs }
+      );
+      logger.info({ dealId: dealIds[0], contactId }, 'HubSpot deal found');
+      return dealResp.data;
+    }
+
+    // Multiple deals — fetch all, prefer most recently created open deal
+    const fetches = dealIds.map((id) =>
+      axios.get(
+        `${BASE}/crm/v3/objects/deals/${id}`,
+        { headers: headers(), params: { properties: [...DEAL_PROPS, 'createdate'].join(',') }, timeout: timeoutMs }
+      ).then((r) => r.data).catch(() => null)
     );
-    logger.info({ dealId: dealIds[0], contactId }, 'HubSpot deal found');
-    return dealResp.data;
+    const deals = (await Promise.all(fetches)).filter(Boolean);
+
+    // Open deals (not closed), sorted newest first
+    const openDeals = deals
+      .filter((d) => !CLOSED_DEAL_STAGES.has((d.properties?.dealstage || '').toLowerCase()))
+      .sort((a, b) => new Date(b.properties?.createdate || 0) - new Date(a.properties?.createdate || 0));
+
+    const chosen = openDeals[0] || deals.sort(
+      (a, b) => new Date(b.properties?.createdate || 0) - new Date(a.properties?.createdate || 0)
+    )[0];
+
+    logger.info({ dealId: chosen?.id, contactId, totalDeals: deals.length, openDeals: openDeals.length }, 'HubSpot deal found (multi-deal lookup)');
+    return chosen || null;
   } catch (err) {
     logger.warn({ err: err.message, contactId }, 'HubSpot deal lookup failed');
     return null;
