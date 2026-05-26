@@ -192,6 +192,7 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
     disposition: summary.disposition,
     durationSeconds,
     notes: noteBody,
+    agent: callingAgent,
   });
 
   // 5. Increment call attempt counter (read-modify-write — no atomic increment in HubSpot)

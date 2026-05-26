@@ -111,7 +111,7 @@ async function addNote(contactId, body) {
 /**
  * Log a call engagement on a contact.
  */
-async function logCallEngagement(contactId, { disposition, durationSeconds = 0, notes = '', recordingUrl = '' }) {
+async function logCallEngagement(contactId, { disposition, durationSeconds = 0, notes = '', recordingUrl = '', agent = 'will' }) {
   if (!contactId || !config.hubspot.apiKey) return null;
 
   const outcomeGuid =
@@ -124,7 +124,7 @@ async function logCallEngagement(contactId, { disposition, durationSeconds = 0, 
   const nowMs = Date.now();
   const props = {
     hs_timestamp: String(nowMs),
-    hs_call_title: `AI SDR Call — Will (GrowthNGen)`,
+    hs_call_title: `${agent.charAt(0).toUpperCase() + agent.slice(1)} SDR Call`,
     hs_call_body: notes,
     hs_call_duration: String(durationSeconds * 1000),
     hs_call_status: 'COMPLETED',
