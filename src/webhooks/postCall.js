@@ -68,7 +68,18 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   const durationSeconds = callMeta.call_duration_secs || 0;
 
   // 1. Claude summarisation
-  const summary = await summariseCall(transcript || [], { conversation_id, duration: durationSeconds });
+  // Pass current AEST time so Claude can resolve relative callback times
+  // (e.g. "in an hour", "this afternoon") to absolute ISO datetimes.
+  const nowAest = new Date().toLocaleString('en-AU', {
+    timeZone: 'Australia/Sydney',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const summary = await summariseCall(transcript || [], {
+    conversation_id,
+    duration: durationSeconds,
+    current_time_aest: nowAest,     // e.g. "26/05/2026, 10:46" — for relative time resolution
+  });
 
   logger.info({ disposition: summary.disposition, conversation_id }, 'post-call summary complete');
 
@@ -193,8 +204,8 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
 
   // 8b. Callback task — schedule a return call at the agreed time
   if (summary.disposition === 'qualified_callback') {
-    // Parse callback time from Claude's extracted datetime, fall back to +4h
-    let callbackDueMs = Date.now() + 4 * 60 * 60 * 1000;
+    // Parse callback time from Claude's extracted datetime, fall back to +1h
+    let callbackDueMs = Date.now() + 1 * 60 * 60 * 1000;
     if (summary.callback_datetime) {
       const parsed = new Date(summary.callback_datetime).getTime();
       if (!isNaN(parsed) && parsed > Date.now()) callbackDueMs = parsed;
