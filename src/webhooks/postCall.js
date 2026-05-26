@@ -54,6 +54,36 @@ const TASK_DISPOSITIONS = {
   declined_ai: 'Prospect declined AI calling — manual outreach required',
 };
 
+// Dispositions that should auto-schedule a next-business-day retry call in the SDR queue
+const RETRY_DISPOSITIONS = new Set(['voicemail_left', 'no_answer']);
+
+/**
+ * Returns epoch ms for 10:00am AEST on the next Mon–Fri.
+ * Uses UTC+10 as a fixed offset; the ±1h AEDT error is corrected by the
+ * calling-hours gate in the n8n sdr-callback-trigger workflow.
+ */
+function nextBusinessDayAt10amMs() {
+  const AEST_OFFSET_MS = 10 * 60 * 60 * 1000; // UTC+10
+  const nowInAest = new Date(Date.now() + AEST_OFFSET_MS);
+  const todayDay = nowInAest.getUTCDay(); // 0=Sun, 1=Mon … 6=Sat in AEST
+
+  // Days to add to land on the next Mon–Fri
+  let days;
+  if (todayDay === 5) days = 3;      // Fri → Mon
+  else if (todayDay === 6) days = 2; // Sat → Mon
+  else days = 1;                     // Sun–Thu → next day
+
+  const targetInAest = new Date(nowInAest.getTime() + days * 24 * 60 * 60 * 1000);
+
+  // 10:00am AEST = 00:00 UTC on that AEST calendar date
+  return Date.UTC(
+    targetInAest.getUTCFullYear(),
+    targetInAest.getUTCMonth(),
+    targetInAest.getUTCDate(),
+    0, 0, 0, 0
+  );
+}
+
 router.post('/post-call', verifyElevenLabsSignature, async (req, res) => {
   // ElevenLabs wraps the payload: { type, event_timestamp, data: { conversation_id, ... } }
   // Fall back to req.body directly in case the structure ever changes.
@@ -250,6 +280,22 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
     // Set sdr_callback_date so it's visible on the contact record in HubSpot
     await setCallbackDate(contactId, callbackDueMs);
     logger.info({ contactId, callbackDueMs, timeLabel, callingAgent }, 'SDR callback task created');
+  }
+
+  // 8c. Voicemail / no-answer — schedule a next-business-day retry in the same SDR queue
+  if (RETRY_DISPOSITIONS.has(summary.disposition)) {
+    const retryMs = nextBusinessDayAt10amMs();
+    const retryLabel = summary.disposition === 'voicemail_left'
+      ? 'Voicemail left — retry call'
+      : 'No answer — retry call';
+    await createFollowUpTask(
+      contactId,
+      retryLabel,
+      summary.outcome,
+      retryMs,
+      callingAgent  // same agent's SDR queue — picked up by sdr-callback-trigger
+    );
+    logger.info({ contactId, retryMs: new Date(retryMs).toISOString(), callingAgent, disposition: summary.disposition }, 'SDR retry task created for next business day');
   }
 
   // 9. Hot lead workflow if flagged
