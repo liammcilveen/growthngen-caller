@@ -286,8 +286,8 @@ async function createFollowUpTask(contactId, subject, body = '', dueMsOverride =
     hs_task_body: body,
     hs_task_status: 'NOT_STARTED',
     hs_task_type: 'CALL',
-    hs_timestamp: String(nowMs),
-    hs_task_due_date: String(dueMsNextDay),
+    // hs_timestamp IS the due date for HubSpot tasks (hs_task_due_date does not exist)
+    hs_timestamp: String(dueMsNextDay),
   };
   if (config.hubspot.ownerId) props.hubspot_owner_id = config.hubspot.ownerId;
 
