@@ -53,7 +53,10 @@ async function updateLeadStatus(contactId, disposition, notes = '') {
   const props = {
     hs_lead_status: leadStatus,
     sdr_call_disposition: disposition,
-    // sdr_last_call_date and sdr_call_attempts retired — auto-populated by HubSpot from call engagements
+    sdr_last_call_date: String(Date.now()),
+    // sdr_callback_date is cleared on every post-call update and re-set
+    // separately (via setCallbackDate) when disposition = qualified_callback
+    sdr_callback_date: '',
   };
   if (notes) props.sdr_notes = notes;
 
@@ -272,6 +275,51 @@ async function enrollInWorkflow(objectId, workflowId) {
   }
 }
 
+/**
+ * Increment sdr_call_attempts by 1 (read → write).
+ * HubSpot has no atomic increment — we read the current value first.
+ */
+async function incrementCallAttempts(contactId) {
+  if (!contactId || !config.hubspot.apiKey) return null;
+  try {
+    const resp = await axios.get(
+      `${BASE}/crm/v3/objects/contacts/${contactId}`,
+      { headers: headers(), params: { properties: 'sdr_call_attempts' }, timeout: 10000 }
+    );
+    const current = parseInt(resp.data.properties?.sdr_call_attempts || '0', 10);
+    await axios.patch(
+      `${BASE}/crm/v3/objects/contacts/${contactId}`,
+      { properties: { sdr_call_attempts: String(current + 1) } },
+      { headers: headers(), timeout: 10000 }
+    );
+    logger.info({ contactId, attempts: current + 1 }, 'HubSpot sdr_call_attempts incremented');
+    return current + 1;
+  } catch (err) {
+    logger.error({ err: err.message, contactId }, 'HubSpot incrementCallAttempts failed');
+    return null;
+  }
+}
+
+/**
+ * Set sdr_callback_date on a contact (epoch ms).
+ * Called after creating a qualified_callback task; cleared by updateLeadStatus on every other call.
+ */
+async function setCallbackDate(contactId, callbackDateMs) {
+  if (!contactId || !config.hubspot.apiKey) return null;
+  try {
+    await axios.patch(
+      `${BASE}/crm/v3/objects/contacts/${contactId}`,
+      { properties: { sdr_callback_date: String(callbackDateMs) } },
+      { headers: headers(), timeout: 10000 }
+    );
+    logger.info({ contactId, callbackDateMs }, 'HubSpot sdr_callback_date set');
+    return true;
+  } catch (err) {
+    logger.error({ err: err.message, contactId }, 'HubSpot setCallbackDate failed');
+    return null;
+  }
+}
+
 // HubSpot task queue IDs — tasks in these queues are picked up by the
 // sdr-callback-trigger n8n workflow and fire the appropriate SDR agent.
 // Manual tasks without a queue ID are ignored by the workflow (safe to create freely).
@@ -368,6 +416,8 @@ module.exports = {
   updateLeadStatus,
   addNote,
   logCallEngagement,
+  incrementCallAttempts,
+  setCallbackDate,
   createDeal,
   updateDealStage,
   setHotLeadFlag,

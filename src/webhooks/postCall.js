@@ -26,6 +26,8 @@ const { findContactByPhone, findAssociatedDeal, normalizePhone } = require('../s
 const { lookup: registryLookup, remove: registryRemove } = require('../services/callRegistry');
 const {
   logCallEngagement,
+  incrementCallAttempts,
+  setCallbackDate,
   createDeal,
   createFollowUpTask,
   updateLeadStatus,
@@ -182,7 +184,10 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
     notes: noteBody,
   });
 
-  // 6. Update lead status
+  // 5. Increment call attempt counter (read-modify-write — no atomic increment in HubSpot)
+  await incrementCallAttempts(contactId);
+
+  // 6. Update lead status + sdr_last_call_date (clears sdr_callback_date — re-set below if needed)
   await updateLeadStatus(contactId, summary.disposition, summary.outcome);
 
   // 7. Create deal if qualified
@@ -219,6 +224,8 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
       callbackDueMs,
       callingAgent  // assigns to Will's or Kate's SDR queue — picked up by n8n
     );
+    // Set sdr_callback_date so it's visible on the contact record in HubSpot
+    await setCallbackDate(contactId, callbackDueMs);
     logger.info({ contactId, callbackDueMs, timeLabel, callingAgent }, 'SDR callback task created');
   }
 
