@@ -98,6 +98,32 @@ async function findContactById(contactId, timeoutMs = 1500) {
 }
 
 /**
+ * Find the primary company ID associated with a contact.
+ * Returns the company object ID string, or null if none.
+ */
+async function findAssociatedCompany(contactId, timeoutMs = 3000) {
+  if (!contactId) return null;
+  try {
+    const resp = await axios.get(
+      `${BASE}/crm/v4/objects/contacts/${contactId}/associations/companies`,
+      { headers: headers(), timeout: timeoutMs }
+    );
+    const results = resp.data.results || [];
+    if (!results.length) return null;
+    // Prefer the entry labelled 'Primary' if HubSpot marks one; otherwise take first
+    const primary = results.find((r) =>
+      r.associationTypes?.some((t) => t.label === 'Primary')
+    ) || results[0];
+    const companyId = String(primary.toObjectId);
+    logger.info({ companyId, contactId }, 'HubSpot primary company found');
+    return companyId;
+  } catch (err) {
+    logger.warn({ err: err.message, contactId }, 'HubSpot company association lookup failed (non-fatal)');
+    return null;
+  }
+}
+
+/**
  * Find the most recent deal associated with a contact.
  */
 // Deal stages that are considered "closed" — don't advance past these
@@ -222,6 +248,7 @@ module.exports = {
   findContactByPhone,
   findContactById,
   findAssociatedDeal,
+  findAssociatedCompany,
   buildContactSummary,
   defaultContactSummary,
   normalizePhone,

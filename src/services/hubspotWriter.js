@@ -164,8 +164,15 @@ const DEFAULT_DEAL_STAGE = '1165694817'; // Qualified Opportunity
 
 /**
  * Create a deal in the GrowthNGen pipeline (qualified_booked / qualified_send_link).
+ * Optionally links the deal to the contact's primary HubSpot company object.
+ *
+ * @param {string}      contactId   HubSpot contact ID
+ * @param {string}      companyName Display name used in the deal title
+ * @param {string}      disposition SDR disposition code
+ * @param {string}      notes       Deal description / outcome notes
+ * @param {string|null} companyId   HubSpot company object ID — associates deal with the company
  */
-async function createDeal(contactId, companyName, disposition, notes = '') {
+async function createDeal(contactId, companyName, disposition, notes = '', companyId = null) {
   if (!contactId || !config.hubspot.apiKey) return null;
 
   const dealStage = DISPOSITION_TO_DEAL_STAGE[disposition] || DEFAULT_DEAL_STAGE;
@@ -186,15 +193,31 @@ async function createDeal(contactId, companyName, disposition, notes = '') {
     );
     const dealId = resp.data.id;
 
-    // Associate deal with contact
     if (dealId) {
+      // Associate deal with contact
       await axios.put(
         `${BASE}/crm/v4/objects/deals/${dealId}/associations/contacts/${contactId}`,
         [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 3 }],
         { headers: headers(), timeout: 10000 }
       );
+
+      // Associate deal with primary company if available
+      if (companyId) {
+        try {
+          await axios.put(
+            `${BASE}/crm/v4/objects/deals/${dealId}/associations/companies/${companyId}`,
+            [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 5 }],
+            { headers: headers(), timeout: 10000 }
+          );
+          logger.info({ dealId, companyId }, 'HubSpot deal associated with company');
+        } catch (assocErr) {
+          // Non-fatal — deal still created and linked to contact
+          logger.warn({ err: assocErr.message, dealId, companyId }, 'HubSpot deal→company association failed (non-fatal)');
+        }
+      }
     }
-    logger.info({ dealId, contactId, companyName }, 'HubSpot deal created');
+
+    logger.info({ dealId, contactId, companyName, companyId }, 'HubSpot deal created');
     return dealId;
   } catch (err) {
     logger.error({ err: err.message, contactId }, 'HubSpot createDeal failed');

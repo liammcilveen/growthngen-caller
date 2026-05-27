@@ -22,7 +22,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../logger');
 const { verifyElevenLabsSignature } = require('../middleware/verifyElevenLabs');
-const { findContactByPhone, findAssociatedDeal, normalizePhone } = require('../services/hubspot');
+const { findContactByPhone, findContactById, findAssociatedDeal, findAssociatedCompany, normalizePhone } = require('../services/hubspot');
 const { lookup: registryLookup, remove: registryRemove } = require('../services/callRegistry');
 const {
   logCallEngagement,
@@ -240,10 +240,13 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
   const deal = await findAssociatedDeal(contactId, 3000);
   if (DEAL_DISPOSITIONS.has(summary.disposition)) {
     if (!deal?.id) {
-      // No deal yet — create one
-      const contact = await findContactByPhone(rawPhone);
-      const companyName = contact?.properties?.company || 'Unknown';
-      await createDeal(contactId, companyName, summary.disposition, summary.outcome);
+      // No deal yet — fetch contact details and primary company, then create
+      const [contactForDeal, companyId] = await Promise.all([
+        findContactById(contactId),
+        findAssociatedCompany(contactId),
+      ]);
+      const companyName = contactForDeal?.properties?.company || 'Unknown';
+      await createDeal(contactId, companyName, summary.disposition, summary.outcome, companyId);
     } else if (
       summary.disposition === 'qualified_booked' &&
       UPGRADEABLE_TO_DEMO_BOOKED.has(deal.properties?.dealstage)
