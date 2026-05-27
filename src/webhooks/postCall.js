@@ -89,7 +89,7 @@ router.post('/post-call', verifyElevenLabsSignature, async (req, res) => {
   // ElevenLabs wraps the payload: { type, event_timestamp, data: { conversation_id, ... } }
   // Fall back to req.body directly in case the structure ever changes.
   const payload = req.body.data || req.body;
-  const { conversation_id, transcript, analysis, metadata, user_id } = payload;
+  const { conversation_id, transcript, analysis, metadata, user_id, end_reason } = payload;
 
   logger.info({ conversation_id, transcriptItems: transcript?.length || 0 }, 'post-call webhook received');
 
@@ -130,6 +130,7 @@ async function processPostCall({ conversation_id, transcript, analysis, metadata
     duration: durationSeconds,
     agent: callingAgent,             // "will" | "kate" — drives system prompt + transcript labels
     current_time_aest: nowAest,      // e.g. "26/05/2026, 10:46" — for relative time resolution
+    end_reason: end_reason || '',    // e.g. "user_hangup" — helps Claude pick the right disposition
   });
 
   logger.info({ disposition: summary.disposition, agent: callingAgent, conversation_id }, 'post-call summary complete');

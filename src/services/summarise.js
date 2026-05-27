@@ -25,7 +25,7 @@ Extract the following in valid JSON — no preamble, no markdown fences, just th
 
 {
   "outcome": "1-2 sentence plain English summary of how the call went",
-  "disposition": "one of the values below — choose carefully:\n    qualified_booked         = meeting confirmed and booked\n    qualified_send_link      = qualified, sending demo/info link\n    qualified_callback       = qualified, callback agreed at a specific time\n    interested_not_qualified = prospect engaged and interested but qualification criteria not yet confirmed (needs another call)\n    not_qualified            = hard ICP mismatch confirmed — prospect does NOT use HubSpot, is not in construction, or ${agentName} determined bad fit and ended the call\n    not_interested           = prospect clearly does not want the product\n    gatekeeper_blocked       = could not reach decision maker\n    no_answer                = call not answered\n    voicemail_left           = left a voicemail message\n    wrong_number             = number belongs to wrong person/company\n    do_not_call              = prospect asked to be removed\n    human_requested          = prospect wants to speak to a human (Liam)\n    declined_ai              = prospect refused to speak to an AI",
+  "disposition": "one of the values below — choose carefully:\n    qualified_booked         = meeting confirmed and booked\n    qualified_send_link      = qualified, sending demo/info link\n    qualified_callback       = qualified, callback agreed at a specific time\n    interested_not_qualified = prospect engaged and interested but qualification criteria not yet confirmed (needs another call)\n    not_qualified            = hard ICP mismatch confirmed — prospect does NOT use HubSpot, is not in construction, or ${agentName} determined bad fit and ended the call\n    not_interested           = prospect clearly does not want the product and said so explicitly\n    gatekeeper_blocked       = could not reach decision maker\n    no_answer                = call not answered\n    voicemail_left           = left a voicemail message\n    wrong_number             = number belongs to wrong person/company\n    do_not_call              = prospect asked to be removed\n    human_requested          = prospect wants to speak to a human (Liam)\n    declined_ai              = prospect hung up, refused to engage, or made clear they do not want to speak to an AI — use this whenever the prospect ended the call abruptly without meaningful conversation\n\nCRITICAL RULE: If the call metadata contains end_reason 'user_hangup' and the conversation was short or one-sided (prospect gave little or no substantive response), choose declined_ai — NOT interested_not_qualified. A hang-up is a rejection of the call, not an interested prospect who needs more qualification.",
   "objections": ["list of objections the prospect raised"],
   "next_action": "specific next action agreed or implied (e.g. 'Send intro email', 'Call back Thursday 10am')",
   "data_points": {
@@ -71,6 +71,17 @@ async function summariseCall(transcriptItems, metadata = {}) {
   if (!transcriptText) {
     logger.warn('summariseCall: empty transcript — returning default');
     return defaultSummary('no_answer', 'No transcript available.');
+  }
+
+  // Short-circuit: if the prospect hung up and the call was very brief (≤ 30s or ≤ 4 lines
+  // with no substantive prospect response), classify as declined_ai without calling Claude.
+  const endReason = (metadata.end_reason || '').toLowerCase();
+  const isUserHangup = endReason === 'user_hangup' || endReason === 'user_hang_up' || endReason === 'caller_hangup';
+  const prospectLines = transcriptItems.filter((i) => i.role === 'user' && (i.message || '').trim().length > 5);
+  const callDuration = metadata.duration || 0;
+  if (isUserHangup && (callDuration <= 30 || prospectLines.length <= 1)) {
+    logger.info({ endReason, duration: callDuration, prospectLines: prospectLines.length }, 'Short user hang-up — classified as declined_ai without Claude');
+    return defaultSummary('declined_ai', `${agentName} was hung up on after a brief exchange. The prospect ended the call without engaging.`);
   }
 
   const client = new Anthropic({ apiKey: config.anthropic.apiKey });
