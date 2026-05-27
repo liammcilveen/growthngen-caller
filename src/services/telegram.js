@@ -25,10 +25,14 @@ async function sendMessage(text) {
     return;
   }
 
+  const threadId = process.env.TELEGRAM_THREAD_ID;
+
   try {
+    const body = { chat_id: chatId, text, parse_mode: 'HTML' };
+    if (threadId) body.message_thread_id = parseInt(threadId, 10);
     await axios.post(
       `https://api.telegram.org/bot${token}/sendMessage`,
-      { chat_id: chatId, text, parse_mode: 'HTML' },
+      body,
       { timeout: 8000 },
     );
   } catch (err) {
