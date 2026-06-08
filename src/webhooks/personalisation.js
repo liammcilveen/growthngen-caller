@@ -67,6 +67,9 @@ router.get('/personalisation', async (req, res) => {
   const response = {
     dynamic_variables: {
       prospect_name: summary.prospect_name,
+      // contact_name mirrors prospect_name so prompts using {{contact_name}} resolve
+      // (Will/Kate prompts reference both {{contact_name}} and {{first_name}}).
+      contact_name: summary.prospect_name,
       first_name: summary.first_name,
       company_name: summary.company_name,
       job_title: summary.job_title,

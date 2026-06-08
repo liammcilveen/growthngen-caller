@@ -132,6 +132,8 @@ router.post('/trigger', requireTriggerAuth, async (req, res) => {
 
   const dynamicVariables = {
     prospect_name: summary.prospect_name,
+    // contact_name mirrors prospect_name so prompts using {{contact_name}} resolve
+    contact_name: summary.prospect_name,
     first_name: summary.first_name,
     company_name: summary.company_name,
     job_title: summary.job_title,
